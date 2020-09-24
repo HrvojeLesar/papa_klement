@@ -1,14 +1,12 @@
 const Discord = require('discord.js');
 const fs = require('fs');
-const ytdl = require('ytdl-core');
 const { exit } = require('process');
 const music = require('./music.js');
+const rolesManager = require('./rolesManager.js');
 
 const client = new Discord.Client();
-exports.client = client;
 
 const PREFIX = '$';
-exports.PREFIX = PREFIX;
 
 let config;
 
@@ -28,12 +26,15 @@ if (!fs.existsSync('./config.json')) {
 }
 
 client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
     music.startup(client);
+    rolesManager.startup(client);
+    console.log(`Logged in as ${client.user.tag}!`);
+    // console.log(client.guilds.cache.get("492292615727874048").roles.cache.get("613115172986552321"));
+    client.guilds.cache.get("492292615727874048").members.cache.get("335480242741313537").roles.add("613115172986552321");
 });
 
 client.on('message', message => {
-    if (!message.content.startsWith(PREFIX) || message.channel.type === 'dm') {
+    if (!message.content.startsWith(PREFIX) || message.channel.type === 'dm' || message.author.bot) {
         return;
     }
 
@@ -60,25 +61,12 @@ client.on('message', message => {
     }
 });
 
+client.on('guildMemberUpdate', (_oldMember, newMember) => {
+    rolesManager.saveRoles(newMember);
+});
+
+client.on('guildMemberAdd', (newMember) => {
+    rolesManager.updateRoles(newMember);
+});
+
 client.login(config.token);
-
-function startUp() {
-    client.guilds.cache.forEach((guild) => {
-        let guildId = guild.id;
-        queue[guildId] = null;
-        dispatcher[guildId] = null;
-    });
-}
-
-function get_voice_channel(guild_id) {
-    let channels = client.guilds.cache.get(guild_id).channels.cache.array();
-    for (let i = 0; i < channels.length; i++) {
-        if (channels[i].type === 'voice' && channels[i].members.size > 0) {
-            if (channels[i].members.size == 1 && channels[i].members.array()[0].user.bot) {
-                return undefined;
-            }
-            return channels[i];
-        }
-    }
-    return undefined;
-}

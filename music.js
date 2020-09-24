@@ -2,10 +2,10 @@ const ytdl = require('ytdl-core');
 const ytsr = require('ytsr');
 const ytpl = require('ytpl');
 const validUrl = require('valid-url');
-const index = require('./index.js');
 
 let dispatcher = [];
 let queue = [];
+let client = [];
 
 exports.dispatcher = dispatcher;
 exports.queue = queue;
@@ -16,6 +16,7 @@ module.exports = {
             let guildId = guild.id;
             queue[guildId] = new Array();
             dispatcher[guildId] = null;
+            client[guildId] = null;
         });
     },
     
@@ -28,13 +29,6 @@ module.exports = {
             return;
         }
 
-        // check if url
-        // check if youtube url
-            // check if playlist
-        // if not url search yt
-        // check if search is valid
-        // play found
-
         if (!voiceChannel) {
             return message.channel.send("Not connected to voice channel");
         }
@@ -42,6 +36,7 @@ module.exports = {
         await handlePlayRequest(args, guildId, message.channel);
 
         if (message.client.voice.connections.get(guildId) === undefined) {
+            client[guildId] = message.client;
             voiceChannel.join().then(connection => connectionPlay(connection, guildId));
         } else {
             return;
@@ -52,7 +47,7 @@ module.exports = {
         
         if (dispatcher[guildId] === null) {
             console.log("Dispatcher uninitialized!");
-            message.channel.send("There is nothing to stop!");
+            message.channel.send("There is nothing to skip!");
             return;
         }
 
@@ -83,7 +78,7 @@ module.exports = {
     queue: function(message) {
         let guildId = message.guild.id;
 
-        console.log(queue[guildId]);
+        // console.log(queue[guildId]);
 
         let queueMessage = createQueueMessage(guildId);
 
@@ -105,10 +100,10 @@ function connectionPlay(connection, guildId) {
     console.log("Playing: [" + queue[guildId][0].title + "] in guild with id [" + guildId + "]");
     let stream;
     if (queue[guildId][0].isYoutubeVideo) {
-        // update presence
+        updateActivity(queue[guildId][0].title, guildId);
         stream = ytdl(queue[guildId][0].url, { filter: 'audioonly' });
     } else {
-        // update presence 
+        updateActivity(queue[guildId][0].title, guildId);
         stream = queue[guildId][0].url;
     }
     dispatcher[guildId] = connection.play(stream, { volume: 1 });
@@ -116,10 +111,10 @@ function connectionPlay(connection, guildId) {
     dispatcher[guildId].on('finish', () => {
         queue[guildId].shift();
         if (queue[guildId][0]) {
-            // update presence
+            updateActivity(queue[guildId][0].title, guildId);
             connectionPlay(connection, guildId);
         } else {
-            // update presence
+            updateActivity(null, guildId);
             dispatcher[guildId].destroy();
             connection.disconnect();
         }
@@ -235,4 +230,8 @@ function createQueueMessage(guildId) {
     }
 
     return message;
+}
+
+async function updateActivity(activity, guildId) {
+    return client[guildId].user.setActivity(activity, { type: 'PLAYING'});
 }
