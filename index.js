@@ -3,6 +3,8 @@ const fs = require('fs');
 const { exit } = require('process');
 const music = require('./music.js');
 const rolesManager = require('./rolesManager.js');
+const unban = require('./unban.js');
+const banajMatijosa = require('./banajMatijosa.js');
 
 const client = new Discord.Client();
 
@@ -32,6 +34,9 @@ client.on('ready', () => {
 });
 
 client.on('message', message => {
+
+    banajMatijosa.banaj(message, message.guild);
+
     if (!message.content.startsWith(PREFIX) || message.channel.type === 'dm' || message.author.bot) {
         return;
     }
@@ -65,6 +70,10 @@ client.on('guildMemberUpdate', (_oldMember, newMember) => {
 
 client.on('guildMemberAdd', (newMember) => {
     rolesManager.updateRoles(newMember);
+});
+
+client.on('guildBanAdd', (guild, user) => {
+    unban.handleBan(guild, user);
 });
 
 client.login(config.token);
