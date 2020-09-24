@@ -29,8 +29,6 @@ client.on('ready', () => {
     music.startup(client);
     rolesManager.startup(client);
     console.log(`Logged in as ${client.user.tag}!`);
-    // console.log(client.guilds.cache.get("492292615727874048").roles.cache.get("613115172986552321"));
-    client.guilds.cache.get("492292615727874048").members.cache.get("335480242741313537").roles.add("613115172986552321");
 });
 
 client.on('message', message => {
