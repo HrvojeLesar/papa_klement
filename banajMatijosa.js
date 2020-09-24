@@ -24,13 +24,11 @@ let lastBan = 0;
 
 module.exports = {
     banaj: function(message, guild) {
+        console.log
         if (guild.id == SERVER) {
             if (message.content.includes(MATTEMOJI)) {
                 if (ALLOWEDMEMBERS.includes(message.author.id)) {
                     let timeNow = Math.floor(Date.now() / 1000);
-                    console.log(timeNow);
-                    console.log(lastBan);
-                    console.log(timeNow - lastBan);
                     if (timeNow - lastBan > COOLDOWN) {
                         lastBan = timeNow;
                         message.channel.send("Ajde bok Matijoš!", { tts: true });

@@ -35,9 +35,13 @@ client.on('ready', () => {
 
 client.on('message', message => {
 
+    if (message.channel.type === 'dm' || message.author.bot) {
+        return;
+    }
+
     banajMatijosa.banaj(message, message.guild);
 
-    if (!message.content.startsWith(PREFIX) || message.channel.type === 'dm' || message.author.bot) {
+    if (!message.content.startsWith(PREFIX)) {
         return;
     }
 
