@@ -6,6 +6,8 @@ const validUrl = require('valid-url');
 let dispatcher = [];
 let queue = [];
 let client = [];
+let timeout = [];
+let connection = [];
 
 exports.dispatcher = dispatcher;
 exports.queue = queue;
@@ -17,6 +19,8 @@ module.exports = {
             queue[guildId] = new Array();
             dispatcher[guildId] = null;
             client[guildId] = null;
+            timeout[guildId] = new Array();
+            connection[guildId] = null;
         });
     },
     
@@ -25,19 +29,28 @@ module.exports = {
         let guildId = message.guild.id;
 
         if (args.length < 1) {
-            console.log("COMMAND [play] | Invalid args!");
-            return;
+            return console.log("COMMAND [play] | Invalid args!");
         }
 
         if (!voiceChannel) {
             return message.channel.send("Not connected to voice channel");
         }
 
+        if (timeout[guildId].isSet) {
+            clearTimeout(timeout[guildId].tout);
+        }
+
         await handlePlayRequest(args, guildId, message.channel);
 
         if (message.client.voice.connections.get(guildId) === undefined) {
             client[guildId] = message.client;
-            voiceChannel.join().then(connection => connectionPlay(connection, guildId));
+            voiceChannel.join().then((conn) => {
+                connection[guildId] = conn;
+                connectionPlay(guildId);
+            });
+        } else if (timeout[guildId].isSet) {
+            timeout[guildId].isSet = false;
+            connectionPlay(guildId);
         } else {
             return;
         }
@@ -71,9 +84,17 @@ module.exports = {
             queue[guildId].length = 0;
         } else {
             message.channel.send("There is nothing to stop!");
+            return;
         }
 
-        dispatcher[guildId].end();
+        // stop timeout if exists
+        if (timeout[guildId].isSet) {
+            clearTimeout(timeout[guildId].tout);
+            timeout[guildId].isSet = false;
+        }
+        updateActivity(null, guildId);
+        dispatcher[guildId].destroy();
+        connection[guildId].disconnect();
     },
     queue: function(message) {
         let guildId = message.guild.id;
@@ -96,7 +117,7 @@ module.exports = {
     }
 }
 
-function connectionPlay(connection, guildId) {
+function connectionPlay(guildId) {
     console.log("Playing: [" + queue[guildId][0].title + "] in guild with id [" + guildId + "]");
     let stream;
     if (queue[guildId][0].isYoutubeVideo) {
@@ -106,17 +127,16 @@ function connectionPlay(connection, guildId) {
         updateActivity(queue[guildId][0].title, guildId);
         stream = queue[guildId][0].url;
     }
-    dispatcher[guildId] = connection.play(stream, { volume: 1 });
+    dispatcher[guildId] = connection[guildId].play(stream, { volume: 1 });
 
     dispatcher[guildId].on('finish', () => {
         queue[guildId].shift();
         if (queue[guildId][0]) {
             updateActivity(queue[guildId][0].title, guildId);
-            connectionPlay(connection, guildId);
+            connectionPlay(guildId);
         } else {
             updateActivity(null, guildId);
-            dispatcher[guildId].destroy();
-            connection.disconnect();
+            disconnect(guildId);
         }
     });
 }
@@ -170,7 +190,6 @@ function addToQueue(queueItem, guildId, channel) {
 }
 
 async function handleYoutubeVideo(video, guildId, channel) {
-    console.log(guildId);
     let info = await ytdl.getBasicInfo(video);
     let title = info.videoDetails.title;
     let duration = info.videoDetails.lengthSeconds;
@@ -234,4 +253,15 @@ function createQueueMessage(guildId) {
 
 async function updateActivity(activity, guildId) {
     return client[guildId].user.setActivity(activity, { type: 'PLAYING'});
+}
+
+function disconnect(guildId) {
+    timeout[guildId] = {
+        'tout': setTimeout(() => {
+            dispatcher[guildId].destroy();
+            connection[guildId].disconnect();
+        // 5 min
+        }, 300000),
+        'isSet': true
+    }
 }

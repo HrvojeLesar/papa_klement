@@ -12,9 +12,6 @@ const PREFIX = '$';
 
 let config;
 
-let dispatcher = [];
-let queue = [];
-
 if (!fs.existsSync('../config.json')) {
     console.log('Missing config file!\nCreating new config.json!');
     fs.writeFileSync('../config.json', '{\n\t"token": "Please insert token"\n}');
@@ -46,8 +43,8 @@ client.on('message', message => {
         return;
     }
 
-    let command = message.content.toLowerCase().split(' ');
-    switch(command[0]) {
+    let command = message.content.split(' ');
+    switch(command[0].toLowerCase()) {
         case(PREFIX + 'play'): {
             music.play(message, command.slice(1).join(' '));
             break;

@@ -51,5 +51,5 @@ function delayBan(message) {
         } catch (e) {
             console.log(e);
         }
-    }, 5000);
+    }, 4000);
 }
