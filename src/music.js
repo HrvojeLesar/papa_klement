@@ -9,6 +9,8 @@ let client = [];
 let timeout = [];
 let connection = [];
 
+const INFINITY = 'ထ';
+
 exports.dispatcher = dispatcher;
 exports.queue = queue;
 
@@ -100,20 +102,7 @@ module.exports = {
         let guildId = message.guild.id;
 
         // console.log(queue[guildId]);
-
-        let queueMessage = createQueueMessage(guildId);
-
-        if (queueMessage.length > 2000) {
-            let errorMessage = `...\n**Queue too long to display!**`;
-            let tmpMessage = queueMessage.slice(0, 2000 - errorMessage.length - 1);
-            if (tmpMessage[tmpMessage.length - 1] === '\n') {
-                tmpMessage = tmpMessage.slice(0, tmpMessage.length - 1);
-            }
-            tmpMessage += errorMessage;
-            return message.channel.send(tmpMessage);
-        }
-
-        return message.channel.send(queueMessage);
+        return message.channel.send(createQueueMessage(guildId));
     }
 }
 
@@ -212,10 +201,10 @@ async function handlePlaylist(commandArgs, guildId, channel) {
     for (let i = 0; i < info.items.length; i++) {
         let title = info.items[i].title;
         let url = info.items[i].url_simple;
-        let length = info.items[i].duration;
+        let duration = info.items[i].duration;
         addToQueue({
             'title': title,
-            'length': length,
+            'duration': duration,
             'url': url,
             'isYoutubeVideo': true,
             'isPlaylist': true,
@@ -235,17 +224,49 @@ function createQueueMessage(guildId) {
         return "Queue is empty";
     }
 
-    message += `Currently playing: ${queue[guildId][0].title}\n`;
+    let totalDuration = 0;
+    let playTime = currentPlayTime(guildId);
+    let currentlyPlayingDuration;
+    if (queue[guildId][0].duration == 'infinity') {
+        currentlyPlayingDuration = 'infinity';
+    } else {
+        currentlyPlayingDuration = durationToSeconds(queue[guildId][0].duration);
+    }
+    message += `**Currently playing:** ${queue[guildId][0].title} **⏐⏐ ${secondsToDuration(playTime)} / `;
+    if (currentlyPlayingDuration == 'infinity') {
+        message += INFINITY;
+        totalDuration = INFINITY;
+    } else {
+        message += `${secondsToDuration(currentlyPlayingDuration)}`;
+        totalDuration = currentlyPlayingDuration - playTime;
+    }
+    message += ` ⏐⏐**\n\n`
+
     for (let i = 1; i < queue[guildId].length; i++) {
         if (queue[guildId][i].isPlaylist) {
             if (lastPlaylist != queue[guildId][i].playlistTitle) {
                 lastPlaylist = queue[guildId][i].playlistTitle;
                 message += `**${queue[guildId][i].playlistTitle}**\n`;
             }
-            message += `> ${i}. ${queue[guildId][i].title}\n`;
-        } else {
-            message += `${i}. ${queue[guildId][i].title}\n`;
+            message += `> `;
         }
+        message += `**${i}. ⏐⏐ ${secondsToDuration(totalDuration)} ⏐⏐** ${queue[guildId][i].title}\n`;
+        
+        if (queue[guildId][i].duration == 'infinity') {
+            totalDuration = INFINITY;
+        }
+        if (totalDuration != INFINITY) {
+            totalDuration += durationToSeconds(queue[guildId][i].duration);
+        }
+    }
+
+    if (message.length > 2000) {
+        let errorMessage = `...\n**Queue too long to display!**`;
+        message = message.slice(0, 2000 - errorMessage.length - 1);
+        if (message[message.length - 1] === '\n') {
+            message = message.slice(0, message.length - 1);
+        }
+        message += errorMessage;
     }
 
     return message;
@@ -265,3 +286,68 @@ function disconnect(guildId) {
         'isSet': true
     }
 }
+
+function durationToSeconds(duration) {
+    if (seconds == INFINITY) {
+        return INFINITY;
+    }
+    let dur = duration.split(':');
+    let seconds = 0;
+    for (let i = 0; i < dur.length; i++) {
+        seconds += dur[i] * Math.pow(60, dur.length - i - 1);
+    }
+    return seconds;
+}
+
+function secondsToDuration(seconds) {
+    if (seconds == INFINITY) {
+        return INFINITY;
+    }
+    let duration = Array();
+    let temp;
+    if (seconds >= 3600) {
+        temp = Math.floor(seconds / 3600);
+        duration.push(temp);
+        seconds -= 3600 * temp;
+    } else {
+        duration.push(0);
+    }
+
+    if (seconds >= 60) {
+        temp = Math.floor(seconds / 60);
+        duration.push(temp);
+        seconds -= 60 * temp;
+    } else {
+        duration.push(0);
+    }
+
+    duration.push(seconds);
+
+    return preetyPrintDuration(duration);
+}
+
+function preetyPrintDuration(duration) {
+    let preetyPrint = Array();
+    let i = 0;
+    if (duration[0] == 0) {
+        i++;
+    }
+    for (; i < 3; i++) {
+        if (duration[i] < 10 && duration[i] > 0) {
+            preetyPrint.push('0' + duration[i]);
+        } else if (duration[i] == 0) {
+            preetyPrint.push('00');
+        } else {
+            preetyPrint.push(duration[i].toString());
+        }
+    }
+
+    return preetyPrint.join(':');
+}
+
+function currentPlayTime(guildId) {
+    return Math.floor(dispatcher[guildId].streamTime / 1000);
+}
+
+// ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
+// ထ
