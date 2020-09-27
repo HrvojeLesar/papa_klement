@@ -288,7 +288,7 @@ function disconnect(guildId) {
 }
 
 function durationToSeconds(duration) {
-    if (seconds == INFINITY) {
+    if (duration == INFINITY) {
         return INFINITY;
     }
     let dur = duration.split(':');
