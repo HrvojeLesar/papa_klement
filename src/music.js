@@ -47,6 +47,7 @@ module.exports = {
         if (message.client.voice.connections.get(guildId) === undefined) {
             client[guildId] = message.client;
             voiceChannel.join().then((conn) => {
+
                 connection[guildId] = conn;
                 connectionPlay(guildId);
             });
@@ -351,3 +352,65 @@ function currentPlayTime(guildId) {
 
 // ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
 // ထ
+
+function startEventHandlers(guildId) {
+    connection[guildId].on('error', (e) => {
+        console.log('C Error');
+        console.log(e);
+    });
+
+    connection[guildId].on('failed', (e) => {
+        console.log('C Failed');
+        console.log(e);
+    });
+
+    connection[guildId].on('reconnecting', (e) => {
+        console.log('C Reconnecting');
+        console.log(e);
+    });
+
+    connection[guildId].on('disconnect', (e) => {
+        console.log('C Disconnect');
+        console.log(e);
+    });
+
+    connection[guildId].on('debug', (e) => {
+        console.log('C Debug');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('debug', (e) => {
+        console.log('D Debug');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('error', (e) => {
+        console.log('D Error');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('close', (e) => {
+        console.log('D Close');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('drain', (e) => {
+        console.log('D Drain');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('finish', (e) => {
+        console.log('D Finish');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('pipe', (e) => {
+        console.log('D Pipe');
+        console.log(e);
+    });
+
+    dispatcher[guildId].on('unpipe', (e) => {
+        console.log('D Unpipe');
+        console.log(e);
+    });
+}
