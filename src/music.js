@@ -85,6 +85,8 @@ module.exports = {
 
         if (queue[guildId].length >= 1) {
             queue[guildId].length = 0;
+        } else if (message.client.voice.connections.get(guildId)) {
+            queue[guildId].length = 0;
         } else {
             message.channel.send("There is nothing to stop!");
             return;
