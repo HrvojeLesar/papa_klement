@@ -112,7 +112,6 @@ module.exports = {
     queue: function(message) {
         let guildId = message.guild.id;
 
-        console.log(lastPlayed[guildId]);
         return message.channel.send(createQueueMessage(guildId));
     },
 
@@ -151,8 +150,7 @@ module.exports = {
                 client[guildId] = message.client;
                 queue[guildId] = Object.assign({}, lastPlayed[guildId]);
                 queue[guildId] = [].concat(lastPlayed[guildId]);
-                console.log(queue[guildId]);
-                lastPlayed[guildId] = null;
+                lastPlayed[guildId].length = 0;
                 voiceChannel.join().then((conn) => {
                     connection[guildId] = conn;
                     connectionPlay(guildId);
