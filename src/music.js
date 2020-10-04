@@ -8,6 +8,7 @@ let queue = [];
 let client = [];
 let timeout = [];
 let connection = [];
+let lastPlayed = [];
 
 const INFINITY = 'ထ';
 
@@ -23,6 +24,7 @@ module.exports = {
             client[guildId] = null;
             timeout[guildId] = new Array();
             connection[guildId] = null;
+            lastPlayed[guildId] = new Array();
         });
     },
     
@@ -84,8 +86,14 @@ module.exports = {
         }
 
         if (queue[guildId].length >= 1) {
+            // tu sjevaj zadnje
+            lastPlayed[guildId] = [].concat(queue[guildId]);
+            lastPlayed[guildId][0].startTime = queue[guildId][0].startTime + currentPlayTime(guildId) * 1000;
             queue[guildId].length = 0;
         } else if (message.client.voice.connections.get(guildId)) {
+            // tu clearaj zadnje
+            console.log("Clearing lastPlayed");
+            lastPlayed[guildId].length = 0;
             queue[guildId].length = 0;
         } else {
             message.channel.send("There is nothing to stop!");
@@ -104,13 +112,64 @@ module.exports = {
     queue: function(message) {
         let guildId = message.guild.id;
 
-        // console.log(queue[guildId]);
+        console.log(lastPlayed[guildId]);
         return message.channel.send(createQueueMessage(guildId));
+    },
+
+    pause: function(message) {
+        let guildId = message.guild.id;
+
+        if (dispatcher[guildId] === null) {
+            console.log("Dispatcher uninitialized!");
+            return;
+        }
+
+        if (dispatcher[guildId].paused) {
+            console.log("Dispatcher is paused");
+            return;
+        }
+        
+
+        dispatcher[guildId].pause();
+    },
+    
+    resume: function(message) {
+        let guildId = message.guild.id;
+        let voiceChannel = message.member.voice.channel;
+
+        if (!voiceChannel) {
+            return message.channel.send("Not connected to voice channel");
+        }
+
+        if (dispatcher[guildId] === null) {
+            console.log("Dispatcher uninitialized!");
+            return;
+        }
+
+        if (message.client.voice.connections.get(guildId) === undefined) {
+            if (lastPlayed[guildId] != null) {
+                client[guildId] = message.client;
+                queue[guildId] = Object.assign({}, lastPlayed[guildId]);
+                queue[guildId] = [].concat(lastPlayed[guildId]);
+                console.log(queue[guildId]);
+                lastPlayed[guildId] = null;
+                voiceChannel.join().then((conn) => {
+                    connection[guildId] = conn;
+                    connectionPlay(guildId);
+                });
+            }
+        } else if (!dispatcher[guildId].paused) {
+            console.log("Dispatcher is not paused");
+            return;
+        } else {
+            dispatcher[guildId].resume();
+        }
     }
 }
 
 function connectionPlay(guildId) {
     console.log("Playing: [" + queue[guildId][0].title + "] in guild with id [" + guildId + "]");
+    let timeStamp = queue[guildId][0].startTime;
     let stream;
     if (queue[guildId][0].isYoutubeVideo) {
         updateActivity(queue[guildId][0].title, guildId);
@@ -119,7 +178,9 @@ function connectionPlay(guildId) {
         updateActivity(queue[guildId][0].title, guildId);
         stream = queue[guildId][0].url;
     }
-    dispatcher[guildId] = connection[guildId].play(stream, { volume: 1 });
+    dispatcher[guildId] = connection[guildId].play(stream, { volume: 1 , seek: timeStamp / 1000 });
+    // dispatcher[guildId] = connection[guildId].play(stream, { volume: 1, seek: ms / 1000 });
+    startEventHandlers(guildId);
 
     dispatcher[guildId].on('finish', () => {
         queue[guildId].shift();
@@ -155,6 +216,7 @@ async function handlePlayRequest(commandArgs, guildId, channel) {
                 'url': commandArgs,
                 'isYoutubeVideo': false,
                 'isPlaylist': false,
+                'startTime': 0
             },
             guildId,
             channel);
@@ -181,16 +243,21 @@ function addToQueue(queueItem, guildId, channel) {
     }
 }
 
-async function handleYoutubeVideo(video, guildId, channel) {
-    let info = await ytdl.getBasicInfo(video);
-    let title = info.videoDetails.title;
-    let duration = info.videoDetails.lengthSeconds;
+async function handleYoutubeVideo(url, guildId, channel) {
+    let info;
+    try {
+        info = await ytdl.getBasicInfo(url);
+    } catch (e) {
+        channel.send("Video info error!");
+        console.error(e);
+    }
     addToQueue({
-        'title': title,
-        'duration': duration,
-        'url': video,
+        'title': info.videoDetails.title,
+        'duration': info.videoDetails.lengthSeconds,
+        'url': url,
         'isYoutubeVideo': true,
         'isPlaylist': false,
+        'startTime': parseTimestamp(url)
     },
     guildId,
     channel);
@@ -198,25 +265,35 @@ async function handleYoutubeVideo(video, guildId, channel) {
 
 // trenutno ne handla playlista z indexom
 // samo doda celoga playlista
-async function handlePlaylist(commandArgs, guildId, channel) {
-    let info = await ytpl(commandArgs);
-    let playlistTitle = info.title;
-    for (let i = 0; i < info.items.length; i++) {
-        let title = info.items[i].title;
-        let url = info.items[i].url_simple;
-        let duration = info.items[i].duration;
+async function handlePlaylist(url, guildId, channel) {
+    let info;
+    try {
+        info = await ytpl(url);
+    } catch (e) {
+        channel.send("Playlist info error!");
+        console.error(e);
+    }
+    let index = getPlaylistIndex(url, info);
+    if (index >= info.items.length) {
+        index = 0;
+    }
+    let timeStamp = parseTimestamp(url);
+    for (let i = index; i < info.items.length; i++) {
         addToQueue({
-            'title': title,
-            'duration': duration,
-            'url': url,
+            'title':  info.items[i].title,
+            'duration': info.items[i].duration,
+            'url': info.items[i].url_simple,
             'isYoutubeVideo': true,
             'isPlaylist': true,
-            'playlistTitle': playlistTitle
+            'playlistTitle': info.title,
+            'startTime': timeStamp,
+            'playlistUrl': url
         },
         guildId,
         channel);
+        startTime = 0;
     }
-    channel.send("Added to queue (playlist): " + playlistTitle);
+    channel.send("Added to queue (playlist): " + info.title);
 }
 
 function createQueueMessage(guildId) {
@@ -228,7 +305,7 @@ function createQueueMessage(guildId) {
     }
 
     let totalDuration = 0;
-    let playTime = currentPlayTime(guildId);
+    let playTime = currentPlayTime(guildId) + queue[guildId][0].startTime / 1000;
     let currentlyPlayingDuration;
     if (queue[guildId][0].duration == 'infinity') {
         currentlyPlayingDuration = 'infinity';
@@ -259,7 +336,7 @@ function createQueueMessage(guildId) {
             totalDuration = INFINITY;
         }
         if (totalDuration != INFINITY) {
-            totalDuration += durationToSeconds(queue[guildId][i].duration);
+            totalDuration += durationToSeconds(queue[guildId][i].duration) - queue[guildId][i].startTime / 1000;
         }
     }
 
@@ -280,6 +357,9 @@ async function updateActivity(activity, guildId) {
 }
 
 function disconnect(guildId) {
+    // clear
+    console.log("Clearing last played");
+    lastPlayed[guildId].length = 0;
     timeout[guildId] = {
         'tout': setTimeout(() => {
             dispatcher[guildId].destroy();
@@ -352,8 +432,88 @@ function currentPlayTime(guildId) {
     return Math.floor(dispatcher[guildId].streamTime / 1000);
 }
 
+
+// returns time in ms
+function parseTimestamp(url) {
+    if (url.indexOf('t=') == -1) {
+        console.log('No timestamp');
+        return 0;
+    }
+
+    let splitTime = url.split('t=');
+    let len = splitTime.length - 1;
+    let ampIndex = splitTime[len].indexOf('&');
+    let time;
+    if (ampIndex == -1) {
+        time = splitTime[len];
+    } else {
+        time = splitTime[len].slice(0, ampIndex);
+    }
+
+    time = Number(time);
+
+    if (isNaN(time)) {
+        return 0;
+    }
+
+    if (time > 43200) {
+        console.log("Timestamp longer than MAX youtube video length");
+        return 0;
+    }
+
+    return time * 1000;
+}
+
+function getPlaylistIndex(url, info) {
+    // get explicit index
+    if (url.indexOf('index=') != -1) {
+        let splitUrl = url.split('index=');
+        let len = splitUrl.length - 1;
+        let ampIndex = splitUrl[len].indexOf('&');
+        let index;
+        if (ampIndex == -1) {
+            index = splitUrl[len];
+        } else {
+            index = splitUrl[len].slice(0, ampIndex);
+        }
+
+        index = Number(index);
+
+        if (isNaN(index)) {
+            return 0;
+        }
+
+        return index - 1;
+    } else {
+        // find index in playlist
+        let splitUrl = url.split('v=');
+        let len = splitUrl.length - 1;
+        let ampIndex = splitUrl[len].indexOf('&');
+        let id;
+        if (ampIndex == -1) {
+            id = splitUrl[len];
+        } else {
+            id = splitUrl[len].slice(0, ampIndex);
+        }
+
+        return getIndexFromInfo(info, id);
+    }
+}
+
+function getIndexFromInfo(info, id) {
+    let index = 0;
+    for (let i = 0; i < info.items.length; i++) {
+        if (info.items[i].id == id) {
+            index = i;
+            break;
+        }
+    }
+    return index;
+}
+
 // ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
 // ထ
+
 
 function startEventHandlers(guildId) {
     connection[guildId].on('error', (e) => {
@@ -396,11 +556,6 @@ function startEventHandlers(guildId) {
         console.log(e);
     });
 
-    dispatcher[guildId].on('drain', (e) => {
-        console.log('D Drain');
-        console.log(e);
-    });
-
     dispatcher[guildId].on('finish', (e) => {
         console.log('D Finish');
         console.log(e);
@@ -413,6 +568,37 @@ function startEventHandlers(guildId) {
 
     dispatcher[guildId].on('unpipe', (e) => {
         console.log('D Unpipe');
+        console.log(e);
+    });
+
+        //kek pek
+    streams[guildId].on('debug', (e) => {
+        console.log('S Debug');
+        console.log(e);
+    });
+
+    streams[guildId].on('error', (e) => {
+        console.log('S Error');
+        console.log(e);
+    });
+
+    streams[guildId].on('close', (e) => {
+        console.log('S Close');
+        console.log(e);
+    });
+
+    streams[guildId].on('finish', (e) => {
+        console.log('S Finish');
+        console.log(e);
+    });
+
+    streams[guildId].on('pipe', (e) => {
+        console.log('S Pipe');
+        console.log(e);
+    });
+
+    streams[guildId].on('unpipe', (e) => {
+        console.log('S Unpipe');
         console.log(e);
     });
 }

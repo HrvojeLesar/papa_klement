@@ -61,6 +61,14 @@ client.on('message', message => {
             music.queue(message);
             break;
         }
+        case(PREFIX + 'pause'): {
+            music.pause(message);
+            break;
+        }
+        case(PREFIX + 'resume'): {
+            music.resume(message);
+            break;
+        }
 
         default: { console.log("Invalid command " + command[0]); return; }
     }
