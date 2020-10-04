@@ -570,35 +570,4 @@ function startEventHandlers(guildId) {
         console.log('D Unpipe');
         console.log(e);
     });
-
-        //kek pek
-    streams[guildId].on('debug', (e) => {
-        console.log('S Debug');
-        console.log(e);
-    });
-
-    streams[guildId].on('error', (e) => {
-        console.log('S Error');
-        console.log(e);
-    });
-
-    streams[guildId].on('close', (e) => {
-        console.log('S Close');
-        console.log(e);
-    });
-
-    streams[guildId].on('finish', (e) => {
-        console.log('S Finish');
-        console.log(e);
-    });
-
-    streams[guildId].on('pipe', (e) => {
-        console.log('S Pipe');
-        console.log(e);
-    });
-
-    streams[guildId].on('unpipe', (e) => {
-        console.log('S Unpipe');
-        console.log(e);
-    });
 }
