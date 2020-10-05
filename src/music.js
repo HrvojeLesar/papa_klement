@@ -29,34 +29,41 @@ module.exports = {
     },
     
     play: async function(message, args) {
+        console.log("Play command");
         let voiceChannel = message.member.voice.channel;
         let guildId = message.guild.id;
 
         if (args.length < 1) {
             return console.log("COMMAND [play] | Invalid args!");
         }
-
+        
         if (!voiceChannel) {
             return message.channel.send("Not connected to voice channel");
         }
-
+        
         if (timeout[guildId].isSet) {
             clearTimeout(timeout[guildId].tout);
         }
-
+        
+        console.log("Handling request");
         await handlePlayRequest(args, guildId, message.channel);
-
+        
         if (message.client.voice.connections.get(guildId) === undefined) {
+            console.log("Prvi if");
             client[guildId] = message.client;
+            console.log("channel join!");
             voiceChannel.join().then((conn) => {
+                console.log("channel joined");
 
                 connection[guildId] = conn;
                 connectionPlay(guildId);
             });
         } else if (timeout[guildId].isSet) {
+            console.log("Drugi if");
             timeout[guildId].isSet = false;
             connectionPlay(guildId);
         } else {
+            console.log("Treci if");
             return;
         }
     },
@@ -170,22 +177,26 @@ function connectionPlay(guildId) {
     let timeStamp = queue[guildId][0].startTime;
     let stream;
     if (queue[guildId][0].isYoutubeVideo) {
+        console.log("YT stream");
         updateActivity(queue[guildId][0].title, guildId);
         stream = ytdl(queue[guildId][0].url, { filter: 'audioonly' });
     } else {
+        console.log("Unknown stream");
         updateActivity(queue[guildId][0].title, guildId);
         stream = queue[guildId][0].url;
     }
+    console.log("Create dispatcher connection");
     dispatcher[guildId] = connection[guildId].play(stream, { volume: 1 , seek: timeStamp / 1000 });
     // dispatcher[guildId] = connection[guildId].play(stream, { volume: 1, seek: ms / 1000 });
-    startEventHandlers(guildId);
-
     dispatcher[guildId].on('finish', () => {
         queue[guildId].shift();
+        console.log("Dispatcher finish!");
         if (queue[guildId][0]) {
+            console.log("Next in queue");
             updateActivity(queue[guildId][0].title, guildId);
             connectionPlay(guildId);
         } else {
+            console.log("Queue is empty, init timeout");
             updateActivity(null, guildId);
             disconnect(guildId);
         }
@@ -511,61 +522,3 @@ function getIndexFromInfo(info, id) {
 
 // ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
 // ထ
-
-
-function startEventHandlers(guildId) {
-    connection[guildId].on('error', (e) => {
-        console.log('C Error');
-        console.log(e);
-    });
-
-    connection[guildId].on('failed', (e) => {
-        console.log('C Failed');
-        console.log(e);
-    });
-
-    connection[guildId].on('reconnecting', (e) => {
-        console.log('C Reconnecting');
-        console.log(e);
-    });
-
-    connection[guildId].on('disconnect', (e) => {
-        console.log('C Disconnect');
-        console.log(e);
-    });
-
-    connection[guildId].on('debug', (e) => {
-        console.log('C Debug');
-        console.log(e);
-    });
-
-    dispatcher[guildId].on('debug', (e) => {
-        console.log('D Debug');
-        console.log(e);
-    });
-
-    dispatcher[guildId].on('error', (e) => {
-        console.log('D Error');
-        console.log(e);
-    });
-
-    dispatcher[guildId].on('close', (e) => {
-        console.log('D Close');
-        console.log(e);
-    });
-
-    dispatcher[guildId].on('finish', (e) => {
-        console.log('D Finish');
-        console.log(e);
-    });
-
-    dispatcher[guildId].on('pipe', (e) => {
-        console.log('D Pipe');
-        console.log(e);
-    });
-
-    dispatcher[guildId].on('unpipe', (e) => {
-        console.log('D Unpipe');
-        console.log(e);
-    });
-}
