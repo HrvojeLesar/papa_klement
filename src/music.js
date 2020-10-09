@@ -43,6 +43,7 @@ module.exports = {
         
         if (timeout[guildId].isSet) {
             clearTimeout(timeout[guildId].tout);
+            timeout[guildId].isSet = false;
         }
         
         console.log("Handling request");
@@ -59,6 +60,7 @@ module.exports = {
                 connectionPlay(guildId);
             });
         } else if (timeout[guildId].isSet) {
+            console.log(timeout[guildId].isSet);
             console.log("Drugi if");
             timeout[guildId].isSet = false;
             connectionPlay(guildId);
@@ -373,6 +375,8 @@ function disconnect(guildId) {
         'tout': setTimeout(() => {
             dispatcher[guildId].destroy();
             connection[guildId].disconnect();
+            console.log("Disconnected");
+            timeout[guildId].isSet = false;
         // 5 min
         }, 300000),
         'isSet': true
