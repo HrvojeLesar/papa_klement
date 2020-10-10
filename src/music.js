@@ -43,8 +43,10 @@ module.exports = {
         
         if (timeout[guildId].isSet) {
             clearTimeout(timeout[guildId].tout);
-            timeout[guildId].isSet = false;
+            // timeout[guildId].isSet = false;
         }
+
+        // clearTimeout(timeout[guildId].tout);
         
         console.log("Handling request");
         await handlePlayRequest(args, guildId, message.channel);
