@@ -49,27 +49,30 @@ module.exports = {
         // clearTimeout(timeout[guildId].tout);
         
         console.log("Handling request");
-        await handlePlayRequest(args, guildId, message.channel);
-        
-        if (message.client.voice.connections.get(guildId) === undefined) {
-            console.log("Prvi if");
-            client[guildId] = message.client;
-            console.log("channel join!");
-            voiceChannel.join().then((conn) => {
-                console.log("channel joined");
-
-                connection[guildId] = conn;
+        try {
+            await handlePlayRequest(args, guildId, message.channel);
+            if (message.client.voice.connections.get(guildId) === undefined) {
+                console.log("Prvi if");
+                client[guildId] = message.client;
+                console.log("channel join!");
+                voiceChannel.join().then((conn) => {
+                    console.log("channel joined");
+    
+                    connection[guildId] = conn;
+                    connectionPlay(guildId);
+                });
+            } else if (timeout[guildId].isSet) {
+                console.log(timeout[guildId].isSet);
+                console.log("Drugi if");
                 connectionPlay(guildId);
-            });
-        } else if (timeout[guildId].isSet) {
-            console.log(timeout[guildId].isSet);
-            console.log("Drugi if");
-            timeout[guildId].isSet = false;
-            connectionPlay(guildId);
-        } else {
-            console.log("Treci if");
-            return;
+            } else {
+                console.log("Treci if");
+                return;
+            }
+        } catch (err) {
+            console.error(err);
         }
+        
     },
     skip: function(message) {
         let guildId = message.guild.id;
@@ -177,6 +180,10 @@ module.exports = {
 }
 
 function connectionPlay(guildId) {
+    timeout[guildId].isSet = false;
+    if (queue[guildId].length == 0) {
+        return;
+    }
     console.log("Playing: [" + queue[guildId][0].title + "] in guild with id [" + guildId + "]");
     let timeStamp = queue[guildId][0].startTime;
     let stream;
@@ -203,6 +210,13 @@ function connectionPlay(guildId) {
             console.log("Queue is empty, init timeout");
             updateActivity(null, guildId);
             disconnect(guildId);
+        }
+    });
+    dispatcher[guildId].on('error', (err) => {
+        console.log(err.message);
+        if (err.message.includes("This is a private video.")) {
+            console.log(guildId);
+            dispatcher[guildId].end();
         }
     });
 }
@@ -257,23 +271,22 @@ function addToQueue(queueItem, guildId, channel) {
 }
 
 async function handleYoutubeVideo(url, guildId, channel) {
-    let info;
     try {
-        info = await ytdl.getBasicInfo(url);
-    } catch (e) {
+        let info = await ytdl.getBasicInfo(url);
+        addToQueue({
+            'title': info.videoDetails.title,
+            'duration': info.videoDetails.lengthSeconds,
+            'url': url,
+            'isYoutubeVideo': true,
+            'isPlaylist': false,
+            'startTime': parseTimestamp(url)
+        },
+        guildId,
+        channel);
+    } catch (err) {
         channel.send("Video info error!");
-        console.error(e);
+        throw err;
     }
-    addToQueue({
-        'title': info.videoDetails.title,
-        'duration': info.videoDetails.lengthSeconds,
-        'url': url,
-        'isYoutubeVideo': true,
-        'isPlaylist': false,
-        'startTime': parseTimestamp(url)
-    },
-    guildId,
-    channel);
 }
 
 // trenutno ne handla playlista z indexom
