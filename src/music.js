@@ -252,6 +252,7 @@ async function handlePlayRequest(commandArgs, guildId, channel) {
     } else {
         // youtube search
         let searcResults = await searchYt(createYtSearchString(commandArgs));
+        console.log(searcResults);
         if (searcResults == 'No result' || searcResults == -1) {
             return channel.send("No result found!");
         }
@@ -565,13 +566,19 @@ async function searchYt(query) {
             }
             body = body.toString();
             let data = body.substring(index_start, index_end);
-            
+
             let resJson = JSON.parse(data);
+
             let firstResult = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents[0];
+            let secondResult = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents[1];
             if (firstResult.videoRenderer) {
                 return return_value = 'https://www.youtube.com/watch?v=' + firstResult.videoRenderer.videoId;
+            } else if (secondResult.videoRenderer) {
+                return return_value = 'https://www.youtube.com/watch?v=' + secondResult.videoRenderer.videoId;
             } else if (firstResult.playlistRenderer) {
                 return return_value = 'https://www.youtube.com/watch?v=' + firstResult.playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + firstResult.playlistRenderer.playlistId;
+            } else if (secondResult.playlistRenderer) {
+                return return_value = 'https://www.youtube.com/watch?v=' + secondResult.playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + secondResult.playlistRenderer.playlistId;
             } else {
                 return return_value = 'No result';
             }
