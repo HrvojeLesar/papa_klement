@@ -569,16 +569,15 @@ async function searchYt(query) {
 
             let resJson = JSON.parse(data);
 
-            let firstResult = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents[0];
-            let secondResult = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents[1];
-            if (firstResult.videoRenderer) {
-                return return_value = 'https://www.youtube.com/watch?v=' + firstResult.videoRenderer.videoId;
-            } else if (secondResult.videoRenderer) {
-                return return_value = 'https://www.youtube.com/watch?v=' + secondResult.videoRenderer.videoId;
-            } else if (firstResult.playlistRenderer) {
-                return return_value = 'https://www.youtube.com/watch?v=' + firstResult.playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + firstResult.playlistRenderer.playlistId;
-            } else if (secondResult.playlistRenderer) {
-                return return_value = 'https://www.youtube.com/watch?v=' + secondResult.playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + secondResult.playlistRenderer.playlistId;
+            let searchResults = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents;
+
+            let firstVideo = findFirstVideo(searchResults);
+            // if (firstVideo != -1 && firstVideo.isPlaylist == false) {
+            if (firstVideo.isPlaylist == false) {
+                return return_value = 'https://www.youtube.com/watch?v=' + searchResults[firstVideo.index].videoRenderer.videoId;
+            // } else if (firstVideo != -1 && firstVideo.isPlaylist == true) {
+            } else if (firstVideo.isPlaylist == true) {
+                return return_value = 'https://www.youtube.com/watch?v=' + searchResults[firstVideo.index].playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + searchResults[firstVideo.index].playlistRenderer.playlistId;
             } else {
                 return return_value = 'No result';
             }
@@ -589,6 +588,23 @@ async function searchYt(query) {
 
 function createYtSearchString(input) {
     return 'https://www.youtube.com/results?search_query=' + input.split(' ').join('+');
+}
+
+function findFirstVideo(results) {
+    for(let i = 0; i < results.length; i++) {
+        if (results[i].videoRenderer) {
+            return {
+                'index': i,
+                'isPlaylist': false
+            };
+        } else if (results[i].playlistRenderer) {
+            return {
+                'index': i,
+                'isPlaylist': true
+            };
+        }
+    }
+    return -1;
 }
 
 // ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
