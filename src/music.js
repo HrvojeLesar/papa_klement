@@ -2,6 +2,7 @@ const ytdl = require('ytdl-core');
 const ytsr = require('ytsr');
 const ytpl = require('ytpl');
 const validUrl = require('valid-url');
+const fetch = require('node-fetch');
 
 let dispatcher = [];
 let queue = [];
@@ -250,12 +251,18 @@ async function handlePlayRequest(commandArgs, guildId, channel) {
         }
     } else {
         // youtube search
-        let res = await ytsr(commandArgs, { limit: 1 });
-        if (res.items.length < 1) {
+        let searcResults = await searchYt(createYtSearchString(commandArgs));
+        if (searcResults == 'No result' || searcResults == -1) {
             return channel.send("No result found!");
         }
+        await handlePlayRequest(searcResults, guildId, channel);
+        
+        // let res = await ytsr(commandArgs, { limit: 1 });
+        // if (res.items.length < 1) {
+        //     return channel.send("No result found!");
+        // }
 
-        await handlePlayRequest(res.items[0].link, guildId, channel);
+        // await handlePlayRequest(res.items[0].link, guildId, channel);
     }
 }
 
@@ -537,6 +544,44 @@ function getIndexFromInfo(info, id) {
         }
     }
     return index;
+}
+
+async function searchYt(query) {
+    let return_value = -1;
+    await fetch(query)
+        .then(res => res.text())
+        .then(body => {
+            let ytInData = 'ytInitialData = ';
+            let fallbackytInData = `window["ytInitialData"] =`; 
+            let fallbackytInDataEnd = `window["ytInitialPlayerResponse"]`;
+            let index_start = body.indexOf(ytInData);
+            let index_end = -1;
+            if (index_start != -1) {
+                index_start += ytInData.length;
+                index_end = body.indexOf('// scraper_data_end') - 3;
+            } else {
+                index_start = body.indexOf(fallbackytInData) + fallbackytInData.length;
+                index_end = body.indexOf(fallbackytInDataEnd) - 6;
+            }
+            body = body.toString();
+            let data = body.substring(index_start, index_end);
+            
+            let resJson = JSON.parse(data);
+            let firstResult = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents[0];
+            if (firstResult.videoRenderer) {
+                return return_value = 'https://www.youtube.com/watch?v=' + firstResult.videoRenderer.videoId;
+            } else if (firstResult.playlistRenderer) {
+                return return_value = 'https://www.youtube.com/watch?v=' + firstResult.playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + firstResult.playlistRenderer.playlistId;
+            } else {
+                return return_value = 'No result';
+            }
+        })
+        .catch(err => console.log(err));
+    return return_value;
+};
+
+function createYtSearchString(input) {
+    return 'https://www.youtube.com/results?search_query=' + input.split(' ').join('+');
 }
 
 // ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
