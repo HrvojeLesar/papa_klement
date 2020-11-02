@@ -15,7 +15,7 @@ module.exports = {
             startupRoleSave(guild);
         });
     },
-    updateRoles: function(newMember) {
+    updateRoles: async function(newMember) {
         let guildId = newMember.guild.id;
         let memberId = newMember.id;
         let json = JSON.parse(fs.readFileSync(`../${SAVEDIR}/${guildId}.json`));
@@ -26,8 +26,8 @@ module.exports = {
             json[memberId].roles.forEach((role) => {
                 roles.push(role.id);
                 roleNames.push(role.name);
-            })
-            newMember.roles.add(roles);
+            });
+            await newMember.roles.add(roles);
             console.log(`Granting roles: ${roleNames} to [${newMember.user.username} | ${memberId}]`);
         } else {
             console.log('There is no roles to return!');
@@ -50,6 +50,7 @@ module.exports = {
         }
 
         fs.writeFileSync(`../${SAVEDIR}/${guildId}.json`, JSON.stringify(json));
+        console.log("Wrote files");
     }
 }
 
