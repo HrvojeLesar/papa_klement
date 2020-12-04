@@ -3,6 +3,7 @@ const ytsr = require('ytsr');
 const ytpl = require('ytpl');
 const validUrl = require('valid-url');
 const fetch = require('node-fetch');
+const fs = require('fs');
 
 let dispatcher = [];
 let queue = [];
@@ -11,7 +12,13 @@ let timeout = [];
 let connection = [];
 let lastPlayed = [];
 
+let lastGuildId;
+let lastTextChannel;
+let lastVoiceChannel;
+
 const INFINITY = 'ထ';
+
+const API_KEY = JSON.parse(fs.readFileSync('../config.json', 'utf-8')).yt_api_key;
 
 exports.dispatcher = dispatcher;
 exports.queue = queue;
@@ -30,9 +37,12 @@ module.exports = {
     },
     
     play: async function(message, args) {
-        console.log("Play command");
         let voiceChannel = message.member.voice.channel;
         let guildId = message.guild.id;
+
+        lastGuildId = guildId;
+        lastTextChannel = message.channel;
+        lastVoiceChannel = voiceChannel;
 
         if (args.length < 1) {
             return console.log("COMMAND [play] | Invalid args!");
@@ -53,9 +63,7 @@ module.exports = {
         try {
             await handlePlayRequest(args, guildId, message.channel);
             if (message.client.voice.connections.get(guildId) === undefined) {
-                console.log("Prvi if");
                 client[guildId] = message.client;
-                console.log("channel join!");
                 voiceChannel.join().then((conn) => {
                     console.log("channel joined");
     
@@ -64,10 +72,8 @@ module.exports = {
                 });
             } else if (timeout[guildId].isSet) {
                 console.log(timeout[guildId].isSet);
-                console.log("Drugi if");
                 connectionPlay(guildId);
             } else {
-                console.log("Treci if");
                 return;
             }
         } catch (err) {
@@ -188,6 +194,7 @@ function connectionPlay(guildId) {
     console.log("Playing: [" + queue[guildId][0].title + "] in guild with id [" + guildId + "]");
     let timeStamp = queue[guildId][0].startTime;
     let stream;
+    console.log(queue[guildId][0]);
     if (queue[guildId][0].isYoutubeVideo) {
         console.log("YT stream");
         updateActivity(queue[guildId][0].title, guildId);
@@ -230,10 +237,14 @@ async function handlePlayRequest(commandArgs, guildId, channel) {
                 console.log("Normal video");
                 await handleYoutubeVideo(commandArgs, guildId, channel);
             } else {
+                channel.send("Trenutno to ne dela");
+                return;
                 console.log("Playlist");
                 await handlePlaylist(commandArgs, guildId, channel);
             }
         } else if (ytpl.validateID(commandArgs)) {
+            channel.send("Trenutno to ne dela");
+            return;
             console.log("Playlist2");
             await handlePlaylist(commandArgs, guildId, channel);
         } else {
@@ -251,12 +262,16 @@ async function handlePlayRequest(commandArgs, guildId, channel) {
         }
     } else {
         // youtube search
-        let searcResults = await searchYt(createYtSearchString(commandArgs));
-        console.log(searcResults);
-        if (searcResults == 'No result' || searcResults == -1) {
-            return channel.send("No result found!");
-        }
-        await handlePlayRequest(searcResults, guildId, channel);
+        await searchYt(commandArgs);
+
+
+
+        // let searcResults = await searchYt(createYtSearchString(commandArgs));
+        // console.log(searcResults);
+        // if (searcResults == 'No result' || searcResults == -1) {
+        //     return channel.send("No result found!");
+        // }
+        // await handlePlayRequest(searcResults, guildId, channel);
         
         // let res = await ytsr(commandArgs, { limit: 1 });
         // if (res.items.length < 1) {
@@ -268,12 +283,14 @@ async function handlePlayRequest(commandArgs, guildId, channel) {
 }
 
 function addToQueue(queueItem, guildId, channel) {
+    console.log("Added to queue:");
+    console.log(queueItem);
     if (queue[guildId].length < 1) {
         queue[guildId].push(queueItem);
     } else if (queueItem.isPlaylist) {
         queue[guildId].push(queueItem);
     } else {
-        channel.send("Added to queue: " + queueItem.title);
+        // channel.send("Added to queue: " + queueItem.title);
         queue[guildId].push(queueItem);
     }
 }
@@ -297,8 +314,6 @@ async function handleYoutubeVideo(url, guildId, channel) {
     }
 }
 
-// trenutno ne handla playlista z indexom
-// samo doda celoga playlista
 async function handlePlaylist(url, guildId, channel) {
     let info;
     try {
@@ -344,7 +359,8 @@ function createQueueMessage(guildId) {
     if (queue[guildId][0].duration == 'infinity') {
         currentlyPlayingDuration = 'infinity';
     } else {
-        currentlyPlayingDuration = durationToSeconds(queue[guildId][0].duration);
+        // currentlyPlayingDuration = durationToSeconds(queue[guildId][0].duration);
+        currentlyPlayingDuration = queue[guildId][0].duration;
     }
     message += `**Currently playing:** ${queue[guildId][0].title} **⏐⏐ ${secondsToDuration(playTime)} / `;
     if (currentlyPlayingDuration == 'infinity') {
@@ -370,7 +386,8 @@ function createQueueMessage(guildId) {
             totalDuration = INFINITY;
         }
         if (totalDuration != INFINITY) {
-            totalDuration += durationToSeconds(queue[guildId][i].duration) - queue[guildId][i].startTime / 1000;
+            // totalDuration += durationToSeconds(queue[guildId][i].duration) - queue[guildId][i].startTime / 1000;
+            totalDuration += queue[guildId][i].duration - queue[guildId][i].startTime / 1000;
         }
     }
 
@@ -547,48 +564,48 @@ function getIndexFromInfo(info, id) {
     return index;
 }
 
-async function searchYt(query) {
-    let return_value = -1;
-    await fetch(query)
-        .then(res => res.text())
-        .then(body => {
-            let ytInData = 'ytInitialData = ';
-            let fallbackytInData = `window["ytInitialData"] =`; 
-            let fallbackytInDataEnd = `window["ytInitialPlayerResponse"]`;
-            let index_start = body.indexOf(ytInData);
-            let index_end = -1;
-            if (index_start != -1) {
-                index_start += ytInData.length;
-                index_end = body.indexOf('// scraper_data_end') - 3;
-            } else {
-                index_start = body.indexOf(fallbackytInData) + fallbackytInData.length;
-                index_end = body.indexOf(fallbackytInDataEnd) - 6;
-            }
-            body = body.toString();
-            let data = body.substring(index_start, index_end);
+// async function searchYt(query) {
+//     let return_value = -1;
+//     await fetch(query)
+//         .then(res => res.text())
+//         .then(body => {
+//             let ytInData = 'ytInitialData = ';
+//             let fallbackytInData = `window["ytInitialData"] =`; 
+//             let fallbackytInDataEnd = `window["ytInitialPlayerResponse"]`;
+//             let index_start = body.indexOf(ytInData);
+//             let index_end = -1;
+//             if (index_start != -1) {
+//                 index_start += ytInData.length;
+//                 index_end = body.indexOf('// scraper_data_end') - 3;
+//             } else {
+//                 index_start = body.indexOf(fallbackytInData) + fallbackytInData.length;
+//                 index_end = body.indexOf(fallbackytInDataEnd) - 6;
+//             }
+//             body = body.toString();
+//             let data = body.substring(index_start, index_end);
 
-            let resJson = JSON.parse(data);
+//             let resJson = JSON.parse(data);
 
-            let searchResults = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents;
+//             let searchResults = resJson.contents.twoColumnSearchResultsRenderer.primaryContents.sectionListRenderer.contents[0].itemSectionRenderer.contents;
 
-            let firstVideo = findFirstVideo(searchResults);
-            // if (firstVideo != -1 && firstVideo.isPlaylist == false) {
-            if (firstVideo.isPlaylist == false) {
-                return return_value = 'https://www.youtube.com/watch?v=' + searchResults[firstVideo.index].videoRenderer.videoId;
-            // } else if (firstVideo != -1 && firstVideo.isPlaylist == true) {
-            } else if (firstVideo.isPlaylist == true) {
-                return return_value = 'https://www.youtube.com/watch?v=' + searchResults[firstVideo.index].playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + searchResults[firstVideo.index].playlistRenderer.playlistId;
-            } else {
-                return return_value = 'No result';
-            }
-        })
-        .catch(err => console.log(err));
-    return return_value;
-};
+//             let firstVideo = findFirstVideo(searchResults);
+//             // if (firstVideo != -1 && firstVideo.isPlaylist == false) {
+//             if (firstVideo.isPlaylist == false) {
+//                 return return_value = 'https://www.youtube.com/watch?v=' + searchResults[firstVideo.index].videoRenderer.videoId;
+//             // } else if (firstVideo != -1 && firstVideo.isPlaylist == true) {
+//             } else if (firstVideo.isPlaylist == true) {
+//                 return return_value = 'https://www.youtube.com/watch?v=' + searchResults[firstVideo.index].playlistRenderer.navigationEndpoint.watchEndpoint.videoId + '&list=' + searchResults[firstVideo.index].playlistRenderer.playlistId;
+//             } else {
+//                 return return_value = 'No result';
+//             }
+//         })
+//         .catch(err => console.log(err));
+//     return return_value;
+// };
 
-function createYtSearchString(input) {
-    return 'https://www.youtube.com/results?search_query=' + input.split(' ').join('+');
-}
+// function createYtSearchString(input) {
+//     return 'https://www.youtube.com/results?search_query=' + input.split(' ').join('+');
+// }
 
 function findFirstVideo(results) {
     for(let i = 0; i < results.length; i++) {
@@ -605,6 +622,109 @@ function findFirstVideo(results) {
         }
     }
     return -1;
+}
+
+
+let playlistItems = [];
+
+async function searchYt(query) {
+    let encoded_query = encodeURIComponent(query);
+    let url = "https://youtube.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=" + encoded_query + "&key=" + API_KEY;
+    let result;
+    await fetch(url)
+        .then(res => res.text())
+        .then(body => {
+            result = JSON.parse(body);
+        })
+        .catch(err => console.log(err));
+    if (result.items[0]) {
+        if (result.items[0].id.videoId) {
+            addToQueue(await getVideoInfo(result.items[0].id.videoId), lastGuildId, lastTextChannel);
+        }
+        if (result.items[0].id.playlistId) {
+            await getPlaylistItems(result.items[0].id.playlistId, result.items[0].snippet.title);
+            for (let i = 0; i < playlistItems.length; i++) {
+                addToQueue(playlistItems[i], lastGuildId, lastTextChannel);
+            }
+            lastTextChannel.send("Added to queue (playlist): " + playlistItems[0].playlistTitle);
+            playlistItems = [];
+        }
+    }
+};
+
+
+async function getVideoInfo(id, is_playlist = false, playlist_title = NaN) {
+    let query = "https://youtube.googleapis.com/youtube/v3/videos?part=snippet%2CcontentDetails&id=" + id + "&key=" + API_KEY;
+    let result;
+    await fetch(query)
+        .then(res => res.text())
+        .then(body => {
+            result = JSON.parse(body);
+        })
+        .catch(err => console.log(err));
+
+    let video = {
+        'title': result.items[0].snippet.title,
+        'duration': parseDuration(result.items[0].contentDetails.duration),
+        'url': "https://www.youtube.com/watch?v=" + id,
+        'isYoutubeVideo': true,
+        'isPlaylist': is_playlist,
+        'playlistTitle': playlist_title,
+        'startTime': 0
+    };
+
+    return video;
+}
+
+
+async function getPlaylistItems(id, title, nextPageToken = undefined) {
+    let query; 
+    if (nextPageToken == undefined) {
+        query = "https://youtube.googleapis.com/youtube/v3/playlistItems?part=snippet%2CcontentDetails&maxResults=50&playlistId=" + id + "&key=" + API_KEY;
+    } else {
+        query = "https://youtube.googleapis.com/youtube/v3/playlistItems?part=snippet%2CcontentDetails&maxResults=50&pageToken=" + nextPageToken + "playlistId=" + id + "&key=" + API_KEY;
+    }
+    let result;
+    await fetch(query)
+        .then(res => res.text())
+        .then(body => {
+            result = JSON.parse(body);
+        })
+        .catch(err => console.log(err));
+    for (let i = 0; i < result.items.length; i++) {
+        console.log(result.items[i].snippet.title);
+        playlistItems.push(await getVideoInfo(result.items[i].snippet.resourceId.videoId, true, title));
+    }
+
+    if (result.nextPageToken) {
+        await getPlaylistItems(id, result.nextPageToken);
+    }
+}
+
+function parseDuration(duration) {
+    let digits = "";
+    let parsed_duration = 0;
+    for (let i = 0; i < duration.length; i++) {
+        if (Number(duration[i])) {
+            digits += duration[i];
+        }
+
+        switch (duration[i]) {
+            case 'H':
+                parsed_duration += Number(digits) * 3600;
+                digits = "";
+                break;
+            case 'M':
+                parsed_duration += Number(digits) * 60;
+                digits = "";
+                break;
+            case 'S':
+                parsed_duration += Number(digits);
+                digits = "";
+                break;
+        }
+    }
+    return parsed_duration;
 }
 
 // ⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐⏐
