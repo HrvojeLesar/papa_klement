@@ -5,6 +5,7 @@ const music = require('./music.js');
 const rolesManager = require('./rolesManager.js');
 const unban = require('./unban.js');
 const banajMatijosa = require('./banajMatijosa.js');
+const speedrun = require('./aoc.js')
 
 const client = new Discord.Client();
 
@@ -67,6 +68,10 @@ client.on('message', message => {
         }
         case(PREFIX + 'resume'): {
             music.resume(message);
+            break;
+        }
+        case(PREFIX + 'speedrun'): {
+            speedrun.speedrun(message);
             break;
         }
 

@@ -2,3 +2,4 @@ node_modules
 *.txt
 config.json
 saved_roles/*
+package-lock.json

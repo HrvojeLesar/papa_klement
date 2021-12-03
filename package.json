@@ -10,11 +10,11 @@
   "license": "ISC",
   "dependencies": {
     "@discordjs/opus": "^0.3.3",
-    "discord.js": "^12.4.1",
+    "discord.js": "^12.5.3",
     "node-fetch": "^2.6.1",
     "opusscript": "0.0.7",
     "valid-url": "^1.0.9",
-    "ytdl-core": "^3.4.2",
+    "ytdl-core": "^4.9.1",
     "ytpl": "^1.0.1",
     "ytsr": "^1.0.4"
   }
