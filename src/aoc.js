@@ -10,7 +10,7 @@ var AOC_RESULTS_CACHE = {};
 
 const PING_AOC_INTERVAL = setInterval(() => {
     aoc();
-},  9000000);
+},  900000);
 
 async function get_aoc() {
     return await fetch(AOC_URL, {
