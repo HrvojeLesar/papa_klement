@@ -290,7 +290,7 @@ function addToQueue(queueItem, guildId, channel) {
     } else if (queueItem.isPlaylist) {
         queue[guildId].push(queueItem);
     } else {
-        // channel.send("Added to queue: " + queueItem.title);
+        channel.send("Added to queue: " + queueItem.title);
         queue[guildId].push(queueItem);
     }
 }

@@ -1,7 +1,7 @@
 module.exports = {
     handleBan: async function(guild, user) {
         await guild.members.unban(user.id);
-        let invite = await getFirstTextChannel(guild).createInvite({maxUses: 1});
+        let invite = await getFirstTextChannel(guild).createInvite({maxUses: 10});
         user.send(`${invite.url}`);
     }
 }
