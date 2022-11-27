@@ -111,7 +111,7 @@ function speedrun(message) {
 
 aoc();
 
-export { speedrun }
+exports.speedrun = speedrun;
 
 const langs = [
     { lang: "Go", weight: 100 },
@@ -128,7 +128,7 @@ const langs = [
     { lang: "HolyC (slobodni reroll)", weight: 1 },
 ]
 
-function roll() {
+function roll(message) {
     const weightsPool = [];
     for (let i = 0; i < langs.length; i++) {
         weightsPool[i] = langs[i].weight + (weightsPool[i - 1] || 0);
@@ -148,5 +148,5 @@ function roll() {
     }
 }
 
-export { roll }
+exports.roll = roll;
 
