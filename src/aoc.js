@@ -186,7 +186,7 @@ function recordRoll(authorId, lang) {
             currentLang: lang,
             lastRolled: timeNow,
             rolledLangs: [
-                ...rolls[authorId].rolledLangs, rolls[authorId].currentLang
+                ...rolls[authorId].rolledLangs, lang
             ]
         };
     }
