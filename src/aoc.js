@@ -197,7 +197,7 @@ function rollCommand(message) {
     const authorId = message.author.id;
     if (canRoll(authorId) === false) {
         if (rolls[authorId] !== undefined) {
-            message.channel.send(rolls[authorId].currentLang.lang);
+            message.channel.send(rolls[authorId].currentLang);
         }
     } else {
         const lang = roll();
