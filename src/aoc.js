@@ -224,7 +224,7 @@ function rerollCommand(message) {
     }
 }
 
-function rolls(message) {
+function printRolls(message) {
     const authorId = message.author.id;
     if (rolls[authorId] !== undefined) {
         let response = "";
@@ -242,4 +242,4 @@ function rolls(message) {
 exports.roll = rollCommand;
 exports.forceRoll = forceRoll;
 exports.reroll = rerollCommand;
-exports.rolls = rolls;
+exports.rolls = printRolls;
