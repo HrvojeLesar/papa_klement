@@ -179,7 +179,7 @@ function canReroll(authorId) {
 function recordRoll(authorId, lang) {
     const timeNow = getTimeNow();
     if (rolls[authorId] === undefined) {
-        rolls[authorId] = { currentLang: lang, rerolls: 2, rolledLangs: [], lastRolled: timeNow };
+        rolls[authorId] = { currentLang: lang, rerolls: 2, rolledLangs: [lang], lastRolled: timeNow };
     } else {
         rolls[authorId] = {
             ...rolls[authorId],
@@ -195,7 +195,7 @@ function recordRoll(authorId, lang) {
 function rollCommand(message) {
     console.log(rolls);
     const authorId = message.author.id;
-    if (canRoll() === false) {
+    if (canRoll(authorId) === false) {
         if (rolls[authorId] !== undefined) {
             message.channel.send(rolls[authorId].currentLang.lang);
         }
@@ -211,7 +211,6 @@ function rollCommand(message) {
 }
 
 function forceRoll(message) {
-    console.log(rolls);
     const authorId = message.author.id;
     const lang = roll();
     recordRoll(authorId, lang);
@@ -220,13 +219,11 @@ function forceRoll(message) {
 
 
 function rerollCommand(message) {
-    console.log(rolls);
     const authorId = message.author.id;
-    if (canReroll() === false) {
+    if (canReroll(authorId) === false) {
         message.channel.send("Nemas vec rerolli!");
     } else {
         const lang = roll();
-        console.log(lang);
         recordRoll(authorId, lang);
         rolls[authorId].rerolls -= 1;
         message.channel.send(lang);
@@ -234,7 +231,6 @@ function rerollCommand(message) {
 }
 
 function printRolls(message) {
-    console.log(rolls);
     const authorId = message.author.id;
     if (rolls[authorId] !== undefined) {
         let response = "";
