@@ -245,7 +245,30 @@ function printRolls(message) {
     }
 }
 
+const ALLOWED_RESETERS = [
+    // Jo
+    '132286945031094272',
+    // Fico
+    '245956125713760258',
+    // Fabac
+    '344472419085582347',
+];
+
+function resetAll(message) {
+    if (ALLOWED_RESETERS.includes(message.author.id)) {
+        rolls = {};
+    }
+}
+
+function resetUser(message) {
+    const authorId = message.author.id;
+    delete rolls[authorId];
+}
+
 exports.roll = rollCommand;
 exports.forceRoll = forceRoll;
 exports.reroll = rerollCommand;
 exports.rolls = printRolls;
+exports.resetAllRolls = resetAll;
+exports.resetUser = resetUser;
+

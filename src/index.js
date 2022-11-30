@@ -91,6 +91,14 @@ client.on('message', message => {
             aoc.rolls(message)
             break;
         }
+        case(PREFIX + 'resetallrolls'): {
+            aoc.resetAllRolls(message)
+            break;
+        }
+        case(PREFIX + 'resetrolls'): {
+            aoc.resetUser(message)
+            break;
+        }
 
         default: { console.log("Invalid command " + command[0]); return; }
     }
