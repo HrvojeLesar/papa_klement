@@ -8,10 +8,6 @@ const AOC_COOKIE = CONFIG.aoc_cookie;
 var AOC_GET_HAS_ERROR = false;
 var AOC_RESULTS_CACHE = {};
 
-const PING_AOC_INTERVAL = setInterval(() => {
-    aoc();
-}, 900000);
-
 async function get_aoc() {
     return await fetch(AOC_URL, {
         method: 'GET',
@@ -27,7 +23,12 @@ async function get_aoc() {
         })
 }
 
-// nepotrebno 
+function startup() {
+    const _ping_aoc_interval = setInterval(() => {
+        aoc();
+    }, 900000);
+}
+
 function aoc() {
     console.log("Pinging AOC");
     get_aoc().then((body) => {
@@ -109,26 +110,25 @@ function speedrun(message) {
     message.channel.send(response);
 }
 
-aoc();
-
+exports.startup = startup;
 exports.speedrun = speedrun;
 
 const langs = [
-    { lang: "Go", weight: 100 },
-    { lang: "C#/Java", weight: 100 },
-    { lang: "C++", weight: 100 },
-    { lang: "PHP", weight: 100 },
-    { lang: "Python", weight: 90 },
-    { lang: "JS/TS", weight: 90 },
-    { lang: "Scratch", weight: 2 },
-    { lang: "Rust", weight: 2 },
-    { lang: "C", weight: 2 },
-    { lang: "Elixir (slobodni reroll)", weight: 1 },
-    { lang: "Julia (slobodni reroll)", weight: 1 },
-    { lang: "HolyC (slobodni reroll)", weight: 1 },
-]
+    { lang: "Go", weight: 100, freeReroll: false },
+    { lang: "C#/Java", weight: 100, freeReroll: false },
+    { lang: "C++", weight: 100, freeReroll: false },
+    { lang: "PHP", weight: 100, freeReroll: false },
+    { lang: "Python", weight: 90, freeReroll: false },
+    { lang: "JS/TS", weight: 90, freeReroll: false },
+    { lang: "Scratch", weight: 2, freeReroll: false },
+    { lang: "Rust", weight: 2, freeReroll: false },
+    { lang: "C", weight: 2, freeReroll: false },
+    { lang: "Elixir (slobodni reroll)", weight: 1, freeReroll: true },
+    { lang: "Julia (slobodni reroll)", weight: 1, freeReroll: true },
+    { lang: "HolyC (slobodni reroll)", weight: 1, freeReroll: true },
+];
 
-function roll(message) {
+function roll() {
     const weightsPool = [];
     for (let i = 0; i < langs.length; i++) {
         weightsPool[i] = langs[i].weight + (weightsPool[i - 1] || 0);
@@ -141,12 +141,105 @@ function roll(message) {
         return weightsPool[i] >= randomNumber;
     });
 
-    if (result === undefined) {
-        message.channel.send("Dober kod pajdo...");
+    return result;
+}
+
+
+const TIME_BETWEEN_ROLLS = 3600 * 6;
+
+function getTimeNow() {
+    return Math.floor(Date.now() / 1000);
+}
+
+let rolls = {};
+
+function canRoll(authorId) {
+    if (rolls[authorId] === undefined) {
+        return true;
+    }
+    if (getTimeNow() - rolls[authorId].lastRolled >= TIME_BETWEEN_ROLLS) {
+        return true
+    }
+    return false;
+}
+
+function canReroll(authorId) {
+    if (rolls[authorId] === undefined) {
+        return false;
+    }
+    if (rolls[authorId].currentLang.freeReroll) {
+        return true
+    }
+    if (rolls[authorId].rerolls > 0) {
+        return true
+    }
+    return false;
+}
+
+function recordRoll(authorId, lang) {
+    const timeNow = getTimeNow();
+    if (rolls[authorId] === undefined) {
+        rolls[authorId] = { currentLang: { ...lang }, rerolls: 2, rolledLangs: [], lastRolled: timeNow };
     } else {
-        message.channel.send(result.lang)
+        rolls[authorId] = {
+            ...rolls[authorId],
+            currentLang: { ...lang },
+            lastRolled: timeNow,
+            rolledLangs: [
+                ...rolls[authorId].rolledLangs, rolls[authorId].currentLang.lang
+            ]
+        };
     }
 }
 
-exports.roll = roll;
+function rollCommand(message) {
+    const authorId = message.author.id;
+    if (canRoll() === false) {
+        if (rolls[authorId] !== undefined) {
+            message.channel.send(rolls[authorId].currentLang.lang);
+        }
+    } else {
+        const lang = roll();
+        recordRoll(authorId, lang);
+        message.channel.send(lang);
+    }
+}
 
+function forceRoll(message) {
+    const authorId = message.author.id;
+    const lang = roll();
+    recordRoll(authorId, lang);
+    message.channel.send(lang);
+}
+
+
+function rerollCommand(message) {
+    const authorId = message.author.id;
+    if (canReroll() === false) {
+        message.channel.send("Nemas vec rerolli!");
+    } else {
+        const lang = roll();
+        recordRoll(authorId, lang);
+        message.channel.send(lang);
+    }
+}
+
+function rolls(message) {
+    const authorId = message.author.id;
+    if (rolls[authorId] !== undefined) {
+        let response = "";
+        rolls[authorId].rolledLangs.forEach((lang, i) => { 
+            if (i === 0) {
+                response += lang;
+            } else {
+                response += ", " + lang;
+            }
+        });
+        message.channel.send(response);
+    }
+}
+
+exports.roll = rollCommand;
+exports.forceRoll = forceRoll;
+exports.reroll = rerollCommand;
+exports.rolls = rolls;

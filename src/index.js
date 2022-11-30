@@ -29,6 +29,7 @@ if (!fs.existsSync('../config.json')) {
 client.on('ready', () => {
     music.startup(client);
     rolesManager.startup(client);
+    aoc.startup();
     console.log(`Logged in as ${client.user.tag}!`);
 });
 
@@ -76,6 +77,18 @@ client.on('message', message => {
         }
         case(PREFIX + 'roll'): {
             aoc.roll(message)
+            break;
+        }
+        case(PREFIX + 'reroll'): {
+            aoc.reroll(message)
+            break;
+        }
+        case(PREFIX + 'forceroll'): {
+            aoc.forceRoll(message)
+            break;
+        }
+        case(PREFIX + 'rolls'): {
+            aoc.rolls(message)
             break;
         }
 
