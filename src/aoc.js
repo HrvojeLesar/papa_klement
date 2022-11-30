@@ -155,14 +155,11 @@ let rolls = {};
 
 function canRoll(authorId) {
     if (rolls[authorId] === undefined) {
-        console.log("canRoll: ", true);
         return true;
     }
     if (getTimeNow() - rolls[authorId].lastRolled >= TIME_BETWEEN_ROLLS) {
-        console.log("canRoll2: ", true);
-        return true
+        return true;
     }
-    console.log("canRoll3: ", false);
     return false;
 }
 
@@ -171,10 +168,10 @@ function canReroll(authorId) {
         return false;
     }
     if (rolls[authorId].currentLang.freeReroll) {
-        return true
+        return true;
     }
     if (rolls[authorId].rerolls > 0) {
-        return true
+        return true;
     }
     return false;
 }
@@ -182,20 +179,21 @@ function canReroll(authorId) {
 function recordRoll(authorId, lang) {
     const timeNow = getTimeNow();
     if (rolls[authorId] === undefined) {
-        rolls[authorId] = { currentLang: { ...lang }, rerolls: 2, rolledLangs: [], lastRolled: timeNow };
+        rolls[authorId] = { currentLang: lang, rerolls: 2, rolledLangs: [], lastRolled: timeNow };
     } else {
         rolls[authorId] = {
             ...rolls[authorId],
-            currentLang: { ...lang },
+            currentLang: lang,
             lastRolled: timeNow,
             rolledLangs: [
-                ...rolls[authorId].rolledLangs, rolls[authorId].currentLang.lang
+                ...rolls[authorId].rolledLangs, rolls[authorId].currentLang
             ]
         };
     }
 }
 
 function rollCommand(message) {
+    console.log(rolls);
     const authorId = message.author.id;
     if (canRoll() === false) {
         if (rolls[authorId] !== undefined) {
@@ -213,6 +211,7 @@ function rollCommand(message) {
 }
 
 function forceRoll(message) {
+    console.log(rolls);
     const authorId = message.author.id;
     const lang = roll();
     recordRoll(authorId, lang);
@@ -221,17 +220,21 @@ function forceRoll(message) {
 
 
 function rerollCommand(message) {
+    console.log(rolls);
     const authorId = message.author.id;
     if (canReroll() === false) {
         message.channel.send("Nemas vec rerolli!");
     } else {
         const lang = roll();
+        console.log(lang);
         recordRoll(authorId, lang);
+        rolls[authorId].rerolls -= 1;
         message.channel.send(lang);
     }
 }
 
 function printRolls(message) {
+    console.log(rolls);
     const authorId = message.author.id;
     if (rolls[authorId] !== undefined) {
         let response = "";
