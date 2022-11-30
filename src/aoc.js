@@ -120,6 +120,9 @@ const langs = [
     { lang: "PHP", weight: 100, freeReroll: false },
     { lang: "Python", weight: 90, freeReroll: false },
     { lang: "JS/TS", weight: 90, freeReroll: false },
+    { lang: "Slobodni izbor", weight: 10, freeReroll: false },
+    { lang: "Matijoš bira", weight: 10, freeReroll: false },
+    { lang: "Bash", weight: 2, freeReroll: false },
     { lang: "Scratch", weight: 2, freeReroll: false },
     { lang: "Rust", weight: 2, freeReroll: false },
     { lang: "C", weight: 2, freeReroll: false },
@@ -193,21 +196,27 @@ function recordRoll(authorId, lang) {
 }
 
 function rollCommand(message) {
-    console.log(rolls);
-    const authorId = message.author.id;
-    if (canRoll(authorId) === false) {
-        if (rolls[authorId] !== undefined) {
-            message.channel.send(rolls[authorId].currentLang);
-        }
+    const lang = roll();
+    if (lang === undefined) {
+        message.channel.send("Dober kod pajdo");
     } else {
-        const lang = roll();
-        if (lang === undefined) {
-            message.channel.send("Dober kod pajdo");
-        } else {
-            recordRoll(authorId, lang);
-            message.channel.send(lang);
-        }
+        message.channel.send(lang);
     }
+    // console.log(rolls);
+    // const authorId = message.author.id;
+    // if (canRoll(authorId) === false) {
+    //     if (rolls[authorId] !== undefined) {
+    //         message.channel.send(rolls[authorId].currentLang);
+    //     }
+    // } else {
+    //     const lang = roll();
+    //     if (lang === undefined) {
+    //         message.channel.send("Dober kod pajdo");
+    //     } else {
+    //         recordRoll(authorId, lang);
+    //         message.channel.send(lang);
+    //     }
+    // }
 }
 
 function forceRoll(message) {
@@ -234,7 +243,7 @@ function printRolls(message) {
     const authorId = message.author.id;
     if (rolls[authorId] !== undefined) {
         let response = "";
-        rolls[authorId].rolledLangs.forEach((lang, i) => { 
+        rolls[authorId].rolledLangs.forEach((lang, i) => {
             if (i === 0) {
                 response += lang;
             } else {
