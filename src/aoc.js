@@ -141,7 +141,7 @@ function roll() {
         return weightsPool[i] >= randomNumber;
     });
 
-    return result;
+    return result.lang;
 }
 
 
@@ -155,11 +155,14 @@ let rolls = {};
 
 function canRoll(authorId) {
     if (rolls[authorId] === undefined) {
+        console.log("canRoll: ", true);
         return true;
     }
     if (getTimeNow() - rolls[authorId].lastRolled >= TIME_BETWEEN_ROLLS) {
+        console.log("canRoll2: ", true);
         return true
     }
+    console.log("canRoll3: ", false);
     return false;
 }
 
@@ -200,8 +203,12 @@ function rollCommand(message) {
         }
     } else {
         const lang = roll();
-        recordRoll(authorId, lang);
-        message.channel.send(lang);
+        if (lang === undefined) {
+            message.channel.send("Dober kod pajdo");
+        } else {
+            recordRoll(authorId, lang);
+            message.channel.send(lang);
+        }
     }
 }
 
