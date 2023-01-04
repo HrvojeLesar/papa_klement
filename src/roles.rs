@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use log::info;
 use mongodb::{bson::doc, Collection};
 use serde::{Deserialize, Serialize};
 use serenity::{
@@ -14,14 +15,16 @@ use crate::{util::retrieve_db_handle, Handler};
 struct SavedUser {
     #[serde(rename = "_id")]
     user_id: i64,
+    display_name: String,
     nickname: Option<String>,
     roles: Vec<i64>,
 }
 
 impl SavedUser {
-    fn new(user_id: i64, nickname: Option<String>, roles: Vec<i64>) -> Self {
+    fn new(user_id: i64, display_name: String, nickname: Option<String>, roles: Vec<i64>) -> Self {
         Self {
             user_id,
+            display_name,
             nickname,
             roles,
         }
@@ -33,22 +36,30 @@ impl Handler {
         &self,
         collection: &Collection<SavedUser>,
         user_id: i64,
+        display_name: &String,
         nickname: &Option<String>,
         roles: &[i64],
     ) -> Result<()> {
         match collection.find_one(doc! {"_id": user_id}, None).await? {
-            Some(_saved_user) => {
+            Some(saved_user) => {
                 collection
                     .find_one_and_update(
                         doc! {"_id": user_id},
-                        doc! {"$set": {"nickname": nickname, "roles": roles}},
+                        doc! {"$set": {"nickname": nickname, "roles": roles, "display_name": display_name}},
                         None,
                     )
                     .await?;
+                info!("Saved user: {:#?}", saved_user);
             }
             None => {
-                let new_user = SavedUser::new(user_id, nickname.clone(), roles.to_vec());
-                collection.insert_one(new_user, None).await?;
+                let new_user = SavedUser::new(
+                    user_id,
+                    display_name.clone(),
+                    nickname.clone(),
+                    roles.to_vec(),
+                );
+                collection.insert_one(&new_user, None).await?;
+                info!("Saved new user: {:#?}", new_user);
             }
         }
 
@@ -67,6 +78,7 @@ impl Handler {
     pub async fn save_roles_on_startup(&self, ctx: &Context) -> Result<()> {
         let database_handle = retrieve_db_handle(ctx).await?;
         for guild in ctx.cache.guilds() {
+            info!("Saving members for guild: {}", guild.as_u64());
             let saved_users_collection =
                 database_handle.collection::<SavedUser>(&guild.as_u64().to_string());
             let mut members_stream = guild.members_iter(&ctx.http).boxed();
@@ -76,11 +88,19 @@ impl Handler {
                 if let Some(roles) = roles {
                     let id = *member.user.id.as_u64() as i64;
                     let member_nick = &member.nick;
-                    self.record_roles(&saved_users_collection, id, member_nick, &roles)
-                        .await?;
+                    let display_name = member.display_name();
+                    self.record_roles(
+                        &saved_users_collection,
+                        id,
+                        &display_name,
+                        member_nick,
+                        &roles,
+                    )
+                    .await?;
                 }
             }
         }
+        info!("Startup save done!");
         Ok(())
     }
 
@@ -92,8 +112,15 @@ impl Handler {
         if let Some(roles) = roles {
             let user_id = *member.user.id.as_u64() as i64;
             let member_nick = &member.nick;
-            self.record_roles(&saved_users_collection, user_id, member_nick, &roles)
-                .await?;
+            let display_name = member.display_name();
+            self.record_roles(
+                &saved_users_collection,
+                user_id,
+                &display_name,
+                member_nick,
+                &roles,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -112,12 +139,14 @@ impl Handler {
                 .iter()
                 .map(|id| RoleId(*id as u64))
                 .collect::<Vec<RoleId>>();
-            member.add_roles(&ctx.http, &roles).await?;
-            member
-                .edit(&ctx.http, |m| {
-                    m.nickname(saved_user.nickname.unwrap_or_else(|| String::from("")))
-                })
-                .await?;
+            if !roles.is_empty() {
+                member.add_roles(&ctx.http, &roles).await?;
+                info!("Added roles to member: {}", member.user.id.as_u64());
+            }
+            if let Some(nickname) = saved_user.nickname {
+                member.edit(&ctx.http, |m| m.nickname(nickname)).await?;
+                info!("Updated nickname for member: {}", member.user.id.as_u64());
+            }
         }
         Ok(())
     }

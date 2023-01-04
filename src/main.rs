@@ -119,7 +119,8 @@ async fn main() {
     let mongo_database = mongo_client.database("papa_klement");
 
     let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN env variable is not defined!");
-    let gateway = GatewayIntents::GUILD_MEMBERS | GatewayIntents::GUILDS;
+    let gateway =
+        GatewayIntents::GUILD_MEMBERS | GatewayIntents::GUILDS | GatewayIntents::GUILD_BANS;
     let mut client = Client::builder(token, gateway)
         .event_handler(Handler)
         .await
