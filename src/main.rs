@@ -16,6 +16,7 @@ use serenity::{
 };
 
 mod roles;
+mod unban;
 mod util;
 
 pub struct MongoDatabaseHandle;
@@ -67,7 +68,12 @@ impl EventHandler for Handler {
             Err(e) => error!("Guild member addition error: {}", e),
         };
     }
-    async fn guild_ban_addition(&self, _ctx: Context, _guild_id: GuildId, _banned_user: User) {}
+    async fn guild_ban_addition(&self, ctx: Context, guild_id: GuildId, banned_user: User) {
+        match self.unban(&ctx, &guild_id, &banned_user).await {
+            Ok(_) => (),
+            Err(e) => error!("Guild ban addition error: {}", e),
+        };
+    }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
         match self.save_roles_on_startup(&ctx).await {
