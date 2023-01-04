@@ -3,3 +3,6 @@ node_modules
 config.json
 saved_roles/*
 package-lock.json
+
+/target
+.env
