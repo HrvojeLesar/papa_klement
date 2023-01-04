@@ -1,14 +1,14 @@
 use anyhow::Result;
-use log::{error, warn};
+
 use mongodb::{bson::doc, Collection};
 use serde::{Deserialize, Serialize};
 use serenity::{
     futures::StreamExt,
-    model::prelude::{Member, Ready, RoleId},
+    model::prelude::{Member, RoleId},
     prelude::Context,
 };
 
-use crate::{util::retrieve_db_handle, Handler, MongoDatabaseHandle};
+use crate::{util::retrieve_db_handle, Handler};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SavedUser {
@@ -56,16 +56,12 @@ impl Handler {
     }
 
     fn get_roles(&self, member: &Member, ctx: &Context) -> Option<Vec<i64>> {
-        let roles = match member.roles(&ctx.cache) {
-            Some(member_roles) => Some(
-                member_roles
-                    .iter()
-                    .map(|role| role.id.as_u64().clone() as i64)
-                    .collect::<Vec<i64>>(),
-            ),
-            None => None,
-        };
-        roles
+        member.roles(&ctx.cache).map(|member_roles| {
+            member_roles
+                .iter()
+                .map(|role| *role.id.as_u64() as i64)
+                .collect::<Vec<i64>>()
+        })
     }
 
     pub async fn save_roles_on_startup(&self, ctx: &Context) -> Result<()> {
@@ -78,7 +74,7 @@ impl Handler {
                 let member = member_result?;
                 let roles = self.get_roles(&member, ctx);
                 if let Some(roles) = roles {
-                    let id = member.user.id.as_u64().clone() as i64;
+                    let id = *member.user.id.as_u64() as i64;
                     let member_nick = &member.nick;
                     self.record_roles(&saved_users_collection, id, member_nick, &roles)
                         .await?;
@@ -90,11 +86,11 @@ impl Handler {
 
     pub async fn save_member_roles_on_update(&self, ctx: &Context, member: &Member) -> Result<()> {
         let database_handle = retrieve_db_handle(ctx).await?;
-        let guild_id = member.guild_id.as_u64().clone() as i64;
+        let guild_id = *member.guild_id.as_u64() as i64;
         let saved_users_collection = database_handle.collection::<SavedUser>(&guild_id.to_string());
         let roles = self.get_roles(member, ctx);
         if let Some(roles) = roles {
-            let user_id = member.user.id.as_u64().clone() as i64;
+            let user_id = *member.user.id.as_u64() as i64;
             let member_nick = &member.nick;
             self.record_roles(&saved_users_collection, user_id, member_nick, &roles)
                 .await?;
@@ -104,27 +100,24 @@ impl Handler {
 
     pub async fn grant_roles_and_nickname(&self, ctx: &Context, member: &mut Member) -> Result<()> {
         let database_handle = retrieve_db_handle(ctx).await?;
-        let guild_id = member.guild_id.as_u64().clone() as i64;
+        let guild_id = *member.guild_id.as_u64() as i64;
         let saved_users_collection = database_handle.collection::<SavedUser>(&guild_id.to_string());
-        let member_id = member.user.id.as_u64().clone() as i64;
-        match saved_users_collection
+        let member_id = *member.user.id.as_u64() as i64;
+        if let Some(saved_user) = saved_users_collection
             .find_one(doc! {"_id": member_id}, None)
             .await?
         {
-            Some(saved_user) => {
-                let roles = saved_user
-                    .roles
-                    .iter()
-                    .map(|id| RoleId(*id as u64))
-                    .collect::<Vec<RoleId>>();
-                member.add_roles(&ctx.http, &roles).await?;
-                member
-                    .edit(&ctx.http, |m| {
-                        m.nickname(saved_user.nickname.unwrap_or(String::from("")))
-                    })
-                    .await?;
-            }
-            None => {}
+            let roles = saved_user
+                .roles
+                .iter()
+                .map(|id| RoleId(*id as u64))
+                .collect::<Vec<RoleId>>();
+            member.add_roles(&ctx.http, &roles).await?;
+            member
+                .edit(&ctx.http, |m| {
+                    m.nickname(saved_user.nickname.unwrap_or_else(|| String::from("")))
+                })
+                .await?;
         }
         Ok(())
     }

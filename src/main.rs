@@ -1,6 +1,6 @@
 use std::{env, sync::Arc};
 
-use log::{error, info};
+use log::error;
 use mongodb::{options::ClientOptions, Database};
 use serenity::{
     async_trait,
@@ -67,7 +67,7 @@ impl EventHandler for Handler {
             Err(e) => error!("Guild member addition error: {}", e),
         };
     }
-    async fn guild_ban_addition(&self, ctx: Context, guild_id: GuildId, banned_user: User) {}
+    async fn guild_ban_addition(&self, _ctx: Context, _guild_id: GuildId, _banned_user: User) {}
 
     async fn ready(&self, ctx: Context, ready: Ready) {
         match self.save_roles_on_startup(&ctx).await {
@@ -76,7 +76,7 @@ impl EventHandler for Handler {
         };
         let guild_id = ready.guilds.first().unwrap().id;
 
-        let commands = match guild_id
+        let _commands = match guild_id
             .set_application_commands(&ctx.http, |commands| {
                 commands.create_application_command(|command| {
                     command

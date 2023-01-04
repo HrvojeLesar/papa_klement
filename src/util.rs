@@ -12,9 +12,7 @@ pub async fn retrieve_db_handle(ctx: &Context) -> Result<Arc<Database>> {
             .read()
             .await
             .get::<MongoDatabaseHandle>()
-            .ok_or(anyhow::anyhow!(
-                "Failed to retrieve MongoDatabaseHandle from data"
-            ))?
+            .ok_or_else(|| anyhow::anyhow!("Failed to retrieve MongoDatabaseHandle from data"))?
             .clone()
     };
     Ok(database_handle)
