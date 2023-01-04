@@ -2,14 +2,13 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use mongodb::Database;
-use serenity::prelude::Context;
+use serenity::prelude::{RwLock, TypeMap};
 
 use crate::MongoDatabaseHandle;
 
-pub async fn retrieve_db_handle(ctx: &Context) -> Result<Arc<Database>> {
+pub async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Database>> {
     let database_handle = {
-        ctx.data
-            .read()
+        data.read()
             .await
             .get::<MongoDatabaseHandle>()
             .ok_or_else(|| anyhow::anyhow!("Failed to retrieve MongoDatabaseHandle from data"))?

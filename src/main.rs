@@ -7,26 +7,36 @@ use serenity::{
     model::{
         prelude::{
             interaction::{Interaction, InteractionResponseType},
-            GuildId, Member, Ready,
+            GuildId, Member, Message, Ready,
         },
         user::User,
     },
-    prelude::{Context, EventHandler, GatewayIntents, TypeMapKey},
+    prelude::{Context, EventHandler, GatewayIntents, RwLock, TypeMapKey},
     Client,
 };
 
+mod banaj_matijosa;
 mod roles;
 mod unban;
 mod util;
 
-pub struct MongoDatabaseHandle;
+pub(crate) struct MongoDatabaseHandle;
 impl TypeMapKey for MongoDatabaseHandle {
     type Value = Arc<Database>;
 }
 
-pub struct MongoClientHandle;
+pub(crate) struct MongoClientHandle;
 impl TypeMapKey for MongoClientHandle {
     type Value = Arc<mongodb::Client>;
+}
+
+pub(crate) struct MattBanCooldown {
+    pub(crate) cooldown: i64,
+    pub(crate) last_ban_timestamp: i64,
+}
+
+impl TypeMapKey for MattBanCooldown {
+    type Value = Arc<RwLock<Self>>;
 }
 
 struct Handler;
@@ -35,6 +45,8 @@ struct Handler;
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         println!("Interaction");
+        // TODO: Top bans command
+        // TODO: Top banee command
         if let Interaction::ApplicationCommand(command) = interaction {
             let content = match command.data.name.as_str() {
                 "me" => "lemejo".to_string(),
@@ -75,11 +87,22 @@ impl EventHandler for Handler {
         };
     }
 
-    async fn ready(&self, ctx: Context, ready: Ready) {
+    async fn cache_ready(&self, ctx: Context, _guilds: Vec<GuildId>) {
         match self.save_roles_on_startup(&ctx).await {
             Ok(_) => (),
             Err(e) => error!("Save roles on startup error: {}", e),
         };
+    }
+
+    async fn message(&self, ctx: Context, message: Message) {
+        println!("Mes");
+        match self.banaj_matijosa(&ctx, &message).await {
+            Ok(_) => (),
+            Err(e) => error!("Banaj Matijoša error: {}", e),
+        };
+    }
+
+    async fn ready(&self, ctx: Context, ready: Ready) {
         let guild_id = ready.guilds.first().unwrap().id;
 
         let _commands = match guild_id
@@ -119,8 +142,12 @@ async fn main() {
     let mongo_database = mongo_client.database("papa_klement");
 
     let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN env variable is not defined!");
-    let gateway =
-        GatewayIntents::GUILD_MEMBERS | GatewayIntents::GUILDS | GatewayIntents::GUILD_BANS;
+    let gateway = GatewayIntents::GUILD_MEMBERS
+        | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILDS
+        | GatewayIntents::GUILD_BANS
+        | GatewayIntents::GUILD_MESSAGES
+        | GatewayIntents::DIRECT_MESSAGES;
     let mut client = Client::builder(token, gateway)
         .event_handler(Handler)
         .await
@@ -130,6 +157,10 @@ async fn main() {
         let mut lock = client.data.write().await;
         lock.insert::<MongoDatabaseHandle>(Arc::new(mongo_database));
         lock.insert::<MongoClientHandle>(Arc::new(mongo_client));
+        lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(MattBanCooldown {
+            cooldown: 3600,
+            last_ban_timestamp: 0,
+        })));
     }
 
     if let Err(err) = client.start().await {

@@ -167,6 +167,7 @@ dependencies = [
  "js-sys",
  "num-integer",
  "num-traits",
+ "serde",
  "time 0.1.45",
  "wasm-bindgen",
  "winapi",
@@ -984,6 +985,7 @@ name = "papa_klement"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "dotenvy",
  "log",
  "mongodb",

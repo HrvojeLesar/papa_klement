@@ -1,6 +1,7 @@
 use crate::{util::retrieve_db_handle, Handler};
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use log::{error, info};
 use mongodb::{bson::doc, IndexModel};
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ pub(crate) struct BanRecord {
     pub(crate) banned_by: BanRecordUser,
     pub(crate) banned_user: BanRecordUser,
     pub(crate) reason: Option<String>,
+    pub(crate) timestamp: DateTime<Utc>,
 }
 
 impl Handler {
@@ -48,8 +50,9 @@ impl Handler {
                 banned_by,
                 banned_user,
                 reason: latest_ban.reason.clone(),
+                timestamp: Utc::now(),
             };
-            let bans_collection = retrieve_db_handle(ctx)
+            let bans_collection = retrieve_db_handle(ctx.data.clone())
                 .await?
                 .collection::<BanRecord>(&format!("{}_bans", guild.as_u64()));
             bans_collection

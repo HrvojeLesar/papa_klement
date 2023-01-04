@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.68"
+chrono = { version = "0.4.23", features = ["clock", "serde"] }
 dotenvy = "0.15.6"
 log = "0.4.17"
 mongodb = "2.3.1"

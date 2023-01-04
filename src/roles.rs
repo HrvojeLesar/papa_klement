@@ -76,7 +76,7 @@ impl Handler {
     }
 
     pub async fn save_roles_on_startup(&self, ctx: &Context) -> Result<()> {
-        let database_handle = retrieve_db_handle(ctx).await?;
+        let database_handle = retrieve_db_handle(ctx.data.clone()).await?;
         for guild in ctx.cache.guilds() {
             info!("Saving members for guild: {}", guild.as_u64());
             let saved_users_collection =
@@ -105,7 +105,7 @@ impl Handler {
     }
 
     pub async fn save_member_roles_on_update(&self, ctx: &Context, member: &Member) -> Result<()> {
-        let database_handle = retrieve_db_handle(ctx).await?;
+        let database_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let guild_id = *member.guild_id.as_u64() as i64;
         let saved_users_collection = database_handle.collection::<SavedUser>(&guild_id.to_string());
         let roles = self.get_roles(member, ctx);
@@ -126,7 +126,7 @@ impl Handler {
     }
 
     pub async fn grant_roles_and_nickname(&self, ctx: &Context, member: &mut Member) -> Result<()> {
-        let database_handle = retrieve_db_handle(ctx).await?;
+        let database_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let guild_id = *member.guild_id.as_u64() as i64;
         let saved_users_collection = database_handle.collection::<SavedUser>(&guild_id.to_string());
         let member_id = *member.user.id.as_u64() as i64;
