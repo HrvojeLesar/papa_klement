@@ -1,4 +1,6 @@
-use std::{env, sync::Arc};
+use anyhow::Result;
+use bantop::BanTopCommand;
+use std::{env, str::FromStr, sync::Arc};
 
 use log::error;
 use mongodb::{options::ClientOptions, Database};
@@ -6,7 +8,11 @@ use serenity::{
     async_trait,
     model::{
         prelude::{
-            interaction::{Interaction, InteractionResponseType},
+            command::Command,
+            interaction::{
+                application_command::ApplicationCommandInteraction, Interaction,
+                InteractionResponseType,
+            },
             GuildId, Member, Message, Ready,
         },
         user::User,
@@ -16,9 +22,33 @@ use serenity::{
 };
 
 mod banaj_matijosa;
+mod bantop;
 mod roles;
 mod unban;
 mod util;
+
+pub(crate) enum SlashCommands {
+    BanTop,
+}
+
+impl SlashCommands {
+    pub(crate) const fn as_str(&self) -> &'static str {
+        match self {
+            Self::BanTop => "BanTop",
+        }
+    }
+}
+
+impl FromStr for SlashCommands {
+    type Err = anyhow::Error;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        match input {
+            "BanTop" => Ok(Self::BanTop),
+            _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
+        }
+    }
+}
 
 pub(crate) struct MongoDatabaseHandle;
 impl TypeMapKey for MongoDatabaseHandle {
@@ -39,8 +69,50 @@ impl TypeMapKey for MattBanCooldown {
     type Value = Arc<RwLock<Self>>;
 }
 
-struct Handler;
+async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
+    #[cfg(not(debug_assertions))]
+    Command::set_global_application_commands(&ctx.http, |commands| {
+        commands.create_application_command(|command| BanTopCommand::register(command))
+    })
+    .await?;
 
+    #[cfg(debug_assertions)]
+    for guild in ready.guilds.iter() {
+        guild
+            .id
+            .set_application_commands(&ctx.http, |commands| {
+                commands.create_application_command(|command| BanTopCommand::register(command))
+            })
+            .await?;
+    }
+    Ok(())
+}
+
+async fn handle_application_command(
+    ctx: &Context,
+    command: ApplicationCommandInteraction,
+) -> Result<()> {
+    // TODO: return a structured response, not only string
+    let content = match command.data.name.as_str().parse()? {
+        SlashCommands::BanTop => BanTopCommand::run(&command.data.options).await,
+    };
+
+    command
+        .create_interaction_response(&ctx.http, |response| {
+            response
+                .kind(InteractionResponseType::ChannelMessageWithSource)
+                .interaction_response_data(|message| {
+                    message
+                        .ephemeral(true)
+                        // TODO: Display actual error
+                        .content(content.unwrap_or_else(|_| "err".to_string()))
+                })
+        })
+        .await?;
+    Ok(())
+}
+
+struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -48,22 +120,9 @@ impl EventHandler for Handler {
         // TODO: Top bans command
         // TODO: Top banee command
         if let Interaction::ApplicationCommand(command) = interaction {
-            let content = match command.data.name.as_str() {
-                "me" => "lemejo".to_string(),
-                _ => "not implemented :(".to_string(),
-            };
-
-            if let Err(why) = command
-                .create_interaction_response(&ctx.http, |response| {
-                    response
-                        .kind(InteractionResponseType::ChannelMessageWithSource)
-                        .interaction_response_data(|message| {
-                            message.ephemeral(true).content(content)
-                        })
-                })
-                .await
-            {
-                println!("Cannot respond to slash command: {}", why);
+            match handle_application_command(&ctx, command).await {
+                Ok(_) => {}
+                Err(e) => error!("Application command error: {}", e),
             }
         }
     }
@@ -103,22 +162,10 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
-        let guild_id = ready.guilds.first().unwrap().id;
-
-        let _commands = match guild_id
-            .set_application_commands(&ctx.http, |commands| {
-                commands.create_application_command(|command| {
-                    command
-                        .name("me")
-                        .description("Checking for command collision")
-                })
-            })
-            .await
-        {
-            Ok(c) => c,
+        match register_slash_commands(&ctx, &ready).await {
+            Ok(_) => {}
             Err(e) => {
                 println!("Ready error: {:#?}", e);
-                return;
             }
         };
     }
