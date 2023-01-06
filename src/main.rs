@@ -131,9 +131,6 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        println!("Interaction");
-        // TODO: Top bans command
-        // TODO: Top banee command
         if let Interaction::ApplicationCommand(command) = interaction {
             match handle_application_command(&ctx, command).await {
                 Ok(_) => {}
