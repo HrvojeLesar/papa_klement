@@ -1,4 +1,4 @@
-use crate::{util::retrieve_db_handle, Handler};
+use crate::{util::retrieve_db_handle, Handler, UNDERSCOREBANS};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -54,7 +54,7 @@ impl Handler {
             };
             let bans_collection = retrieve_db_handle(ctx.data.clone())
                 .await?
-                .collection::<BanRecord>(&format!("{}_bans", guild.as_u64()));
+                .collection::<BanRecord>(&format!("{}{UNDERSCOREBANS}", guild.as_u64()));
             bans_collection
                 .create_indexes(
                     [

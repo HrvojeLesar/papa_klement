@@ -8,7 +8,6 @@ use serenity::{
     async_trait,
     model::{
         prelude::{
-            command::Command,
             interaction::{
                 application_command::ApplicationCommandInteraction, Interaction,
                 InteractionResponseType,
@@ -27,6 +26,8 @@ mod roles;
 mod unban;
 mod util;
 
+pub const UNDERSCOREBANS: &str = "_bans";
+
 pub(crate) enum SlashCommands {
     BanTop,
 }
@@ -34,7 +35,7 @@ pub(crate) enum SlashCommands {
 impl SlashCommands {
     pub(crate) const fn as_str(&self) -> &'static str {
         match self {
-            Self::BanTop => "BanTop",
+            Self::BanTop => "bantop",
         }
     }
 }
@@ -44,7 +45,7 @@ impl FromStr for SlashCommands {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
-            "BanTop" => Ok(Self::BanTop),
+            "bantop" => Ok(Self::BanTop),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -67,6 +68,11 @@ pub(crate) struct MattBanCooldown {
 
 impl TypeMapKey for MattBanCooldown {
     type Value = Arc<RwLock<Self>>;
+}
+
+pub(crate) struct CommandResponse {
+    content: String,
+    ephemeral: bool,
 }
 
 async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
@@ -92,9 +98,19 @@ async fn handle_application_command(
     ctx: &Context,
     command: ApplicationCommandInteraction,
 ) -> Result<()> {
-    // TODO: return a structured response, not only string
-    let content = match command.data.name.as_str().parse()? {
-        SlashCommands::BanTop => BanTopCommand::run(&command.data.options).await,
+    let command_response = match command.data.name.as_str().parse()? {
+        SlashCommands::BanTop => BanTopCommand::run(ctx, &command).await,
+    };
+
+    let command_response = match command_response {
+        Ok(c) => c,
+        Err(err) => {
+            error!("Error handling slash command: {:#?}", err);
+            CommandResponse {
+                content: format!("Error happend: {:#?}", err),
+                ephemeral: false,
+            }
+        }
     };
 
     command
@@ -103,9 +119,8 @@ async fn handle_application_command(
                 .kind(InteractionResponseType::ChannelMessageWithSource)
                 .interaction_response_data(|message| {
                     message
-                        .ephemeral(true)
-                        // TODO: Display actual error
-                        .content(content.unwrap_or_else(|_| "err".to_string()))
+                        .ephemeral(command_response.ephemeral)
+                        .content(command_response.content)
                 })
         })
         .await?;
@@ -154,7 +169,6 @@ impl EventHandler for Handler {
     }
 
     async fn message(&self, ctx: Context, message: Message) {
-        println!("Mes");
         match self.banaj_matijosa(&ctx, &message).await {
             Ok(_) => (),
             Err(e) => error!("Banaj Matijoša error: {}", e),
