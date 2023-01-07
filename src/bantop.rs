@@ -1,18 +1,16 @@
-
-
 use anyhow::Result;
-use mongodb::{
-    bson::{doc},
-    Collection, Cursor,
-};
+use mongodb::{bson::doc, Collection, Cursor};
 use serde::{Deserialize, Serialize};
 use serenity::{
-    builder::CreateApplicationCommand,
+    async_trait, builder::CreateApplicationCommand,
     model::prelude::interaction::application_command::ApplicationCommandInteraction,
     prelude::Context, utils::MessageBuilder,
 };
 
-use crate::{util::retrieve_db_handle, CommandResponse, SlashCommands, UNDERSCOREBANS};
+use crate::{
+    util::{retrieve_db_handle, CommandRunner},
+    CommandResponse, SlashCommands, UNDERSCOREBANS,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct BanCountRecord {
@@ -67,8 +65,17 @@ impl BanTopCommand {
         }
         Ok(collection)
     }
+}
 
-    pub(crate) async fn run(
+#[async_trait]
+impl CommandRunner for BanTopCommand {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        command
+            .name(SlashCommands::BanTop.as_str())
+            .description("Test description")
+    }
+
+    async fn run(
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
@@ -112,13 +119,5 @@ impl BanTopCommand {
             content: builder.build(),
             ephemeral: false,
         })
-    }
-
-    pub(crate) fn register(
-        command: &mut CreateApplicationCommand,
-    ) -> &mut CreateApplicationCommand {
-        command
-            .name(SlashCommands::BanTop.as_str())
-            .description("Test description")
     }
 }

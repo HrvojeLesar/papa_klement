@@ -104,6 +104,7 @@ impl Handler {
         Ok(())
     }
 
+    // TODO: check what changed
     pub async fn save_member_roles_on_update(&self, ctx: &Context, member: &Member) -> Result<()> {
         let database_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let guild_id = *member.guild_id.as_u64() as i64;

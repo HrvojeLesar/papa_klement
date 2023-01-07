@@ -2,9 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use mongodb::Database;
-use serenity::prelude::{RwLock, TypeMap};
+use serenity::{
+    async_trait,
+    builder::CreateApplicationCommand,
+    model::prelude::interaction::application_command::ApplicationCommandInteraction,
+    prelude::{Context, RwLock, TypeMap},
+};
 
-use crate::MongoDatabaseHandle;
+use crate::{CommandResponse, MongoDatabaseHandle};
 
 pub async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Database>> {
     let database_handle = {
@@ -15,4 +20,11 @@ pub async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Databa
             .clone()
     };
     Ok(database_handle)
+}
+
+#[async_trait]
+pub(crate) trait CommandRunner {
+    async fn run(ctx: &Context, command: &ApplicationCommandInteraction)
+        -> Result<CommandResponse>;
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand;
 }

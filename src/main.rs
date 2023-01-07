@@ -1,6 +1,8 @@
 use anyhow::Result;
 use bantop::BanTopCommand;
+use music::PlayCommand;
 use std::{env, str::FromStr, sync::Arc};
+use util::CommandRunner;
 
 use log::error;
 use mongodb::{options::ClientOptions, Database};
@@ -22,6 +24,7 @@ use serenity::{
 
 mod banaj_matijosa;
 mod bantop;
+mod music;
 mod roles;
 mod unban;
 mod util;
@@ -30,12 +33,14 @@ pub const UNDERSCOREBANS: &str = "_bans";
 
 pub(crate) enum SlashCommands {
     BanTop,
+    Play,
 }
 
 impl SlashCommands {
     pub(crate) const fn as_str(&self) -> &'static str {
         match self {
             Self::BanTop => "bantop",
+            Self::Play => "play",
         }
     }
 }
@@ -46,6 +51,7 @@ impl FromStr for SlashCommands {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
             "bantop" => Ok(Self::BanTop),
+            "play" => Ok(Self::Play),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -76,18 +82,13 @@ pub(crate) struct CommandResponse {
 }
 
 async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
-    #[cfg(not(debug_assertions))]
-    Command::set_global_application_commands(&ctx.http, |commands| {
-        commands.create_application_command(|command| BanTopCommand::register(command))
-    })
-    .await?;
-
-    #[cfg(debug_assertions)]
     for guild in ready.guilds.iter() {
         guild
             .id
             .set_application_commands(&ctx.http, |commands| {
-                commands.create_application_command(|command| BanTopCommand::register(command))
+                commands
+                    .create_application_command(|command| BanTopCommand::register(command))
+                    .create_application_command(|command| PlayCommand::register(command))
             })
             .await?;
     }
@@ -100,6 +101,7 @@ async fn handle_application_command(
 ) -> Result<()> {
     let command_response = match command.data.name.as_str().parse()? {
         SlashCommands::BanTop => BanTopCommand::run(ctx, &command).await,
+        SlashCommands::Play => BanTopCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {
@@ -181,6 +183,12 @@ impl EventHandler for Handler {
         };
     }
 }
+
+// TODO: Youtube search spawns another youtube-dl instance that saves file to disk for later
+// TODO: If url is provided try finding it in saved files
+// TODO: If search query provided, search youtube, extract url from matadata and check disk replace
+// search with local file if found
+// TODO: Handle downloading same file multiple times at the same time (avoid filename collision)
 
 #[tokio::main]
 async fn main() {

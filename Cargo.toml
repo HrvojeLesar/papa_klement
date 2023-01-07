@@ -10,6 +10,7 @@ anyhow = "1.0.68"
 chrono = { version = "0.4.23", features = ["clock", "serde"] }
 dotenvy = "0.15.6"
 log = "0.4.17"
+moka = "0.9.6"
 mongodb = "2.3.1"
 pretty_env_logger = "0.4.0"
 serde = { version = "1.0.152", features = ["derive"] }
@@ -22,4 +23,5 @@ serenity = { version = "0.11.5", default-features = false, features = [
     "utils",
     "rustls_backend",
 ] }
+songbird = { version = "0.3.0", features = ["yt-dlp"] }
 tokio = { version = "1.23.0", features = ["full"] }
