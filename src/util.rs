@@ -56,5 +56,7 @@ pub(crate) trait CommandRunner {
         content: String,
         ephemeral: bool,
         response_type: Option<InteractionResponseType>,
-    ) -> CommandResponse;
+    ) -> CommandResponse {
+        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
+    }
 }

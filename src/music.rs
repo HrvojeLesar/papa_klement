@@ -9,17 +9,20 @@ use serde::{Deserialize, Serialize};
 use serenity::{
     async_trait,
     builder::CreateApplicationCommand,
-    model::prelude::{
-        command::CommandOptionType,
-        interaction::application_command::ApplicationCommandInteraction,
-        interaction::InteractionResponseType, ChannelId, ChannelType,
+    model::{
+        prelude::{
+            command::CommandOptionType,
+            interaction::application_command::ApplicationCommandInteraction,
+            interaction::InteractionResponseType, Activity, ChannelId, ChannelType,
+        },
+        user::OnlineStatus,
     },
     prelude::{Context, Mutex, RwLock},
 };
 use sha2::{Digest, Sha256};
 use songbird::{
     input::{Input, Restartable},
-    Call,
+    Call, Event, EventContext, EventHandler,
 };
 use tokio::process::Command;
 
@@ -42,6 +45,49 @@ struct CachedAudioRecord {
     url: String,
     title: Option<String>,
     date: DateTime<Utc>,
+}
+
+struct TrackStartEventHandler {
+    context: Arc<Context>,
+}
+
+#[async_trait]
+impl EventHandler for TrackStartEventHandler {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::Track(track) = ctx {
+            if let Some((_track_state, track_handle)) = track.first() {
+                if let Some(title) = track_handle.metadata().title.as_ref() {
+                    self.context.set_activity(Activity::playing(title)).await;
+                } else {
+                    self.context
+                        .set_activity(Activity::playing("TITLE NOT FOUND"))
+                        .await;
+                }
+            }
+        }
+        None
+    }
+}
+
+struct TrackEndEventHandler {
+    call_handler: Arc<Mutex<Call>>,
+    context: Arc<Context>,
+}
+
+#[async_trait]
+impl EventHandler for TrackEndEventHandler {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::Track(_track) = ctx {
+            let is_empty = {
+                let lock = self.call_handler.lock().await;
+                lock.queue().is_empty()
+            };
+            if is_empty {
+                self.context.set_presence(None, OnlineStatus::Online).await;
+            }
+        }
+        None
+    }
 }
 
 pub(crate) struct SaveHandler {
@@ -235,6 +281,24 @@ impl PlayCommand {
                 None => {
                     let (handler, join_result) = manager.join(guild_id, channel_id).await;
                     join_result?;
+                    {
+                        let mut lock = handler.lock().await;
+                        // WARN: Very inefficient
+                        let context_arc = Arc::new(ctx.clone());
+                        lock.add_global_event(
+                            Event::Track(songbird::TrackEvent::Play),
+                            TrackStartEventHandler {
+                                context: context_arc.clone(),
+                            },
+                        );
+                        lock.add_global_event(
+                            Event::Track(songbird::TrackEvent::End),
+                            TrackEndEventHandler {
+                                call_handler: handler.clone(),
+                                context: context_arc,
+                            },
+                        );
+                    }
                     handler
                 }
             };
@@ -281,7 +345,7 @@ impl CommandRunner for PlayCommand {
                     .description("Search query or youtube URL")
                     .channel_types(&[ChannelType::Text])
             })
-            .description("Test description")
+            .description("Plays a track from youtube")
     }
 
     async fn run(
@@ -358,6 +422,7 @@ impl CommandRunner for PlayCommand {
         handle.enqueue_source(source);
 
         if handle.queue().len() == 1 {
+            ctx.set_activity(Activity::playing(&title)).await;
             Ok(Self::make_response(
                 format!("Now playing: {}", title),
                 false,
@@ -374,14 +439,6 @@ impl CommandRunner for PlayCommand {
 
     fn deferr() -> bool {
         true
-    }
-
-    fn make_response(
-        content: String,
-        ephemeral: bool,
-        response_type: Option<InteractionResponseType>,
-    ) -> CommandResponse {
-        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
     }
 }
 
@@ -400,7 +457,6 @@ impl CommandRunner for SkipCommand {
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
-        deferr_response(ctx, command).await?;
         let guild_id = match command.guild_id {
             Some(g) => g,
             None => {
@@ -449,16 +505,50 @@ impl CommandRunner for SkipCommand {
             ))
         }
     }
+}
 
-    fn deferr() -> bool {
-        true
+pub(crate) struct StopCommand;
+
+#[async_trait]
+impl CommandRunner for StopCommand {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        command
+            .name(SlashCommands::Stop.as_str())
+            .dm_permission(false)
+            .description("Stops the bot playing tracks and disconnects it")
     }
 
-    fn make_response(
-        content: String,
-        ephemeral: bool,
-        response_type: Option<InteractionResponseType>,
-    ) -> CommandResponse {
-        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
+    async fn run(
+        ctx: &Context,
+        command: &ApplicationCommandInteraction,
+    ) -> Result<CommandResponse> {
+        let guild_id = match command.guild_id {
+            Some(g) => g,
+            None => {
+                return Ok(Self::make_response(
+                    "Command must be run in a guild!".to_string(),
+                    true,
+                    None,
+                ));
+            }
+        };
+        let manager = songbird::get(ctx)
+            .await
+            .expect("Songbird must be registered in client")
+            .clone();
+        if let Some(handler_lock) = manager.get(guild_id) {
+            let mut handler = handler_lock.lock().await;
+            let queue = handler.queue();
+            queue.stop();
+            ctx.set_presence(None, OnlineStatus::Online).await;
+            handler.leave().await?;
+            Ok(Self::make_response("Stopping".to_string(), false, None))
+        } else {
+            Ok(Self::make_response(
+                "Failed to stop".to_string(),
+                true,
+                None,
+            ))
+        }
     }
 }
