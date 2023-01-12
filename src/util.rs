@@ -33,6 +33,17 @@ pub(crate) async fn retrieve_save_handler(data: Arc<RwLock<TypeMap>>) -> Result<
         .clone())
 }
 
+pub(crate) async fn deferr_response(
+    ctx: &Context,
+    command: &ApplicationCommandInteraction,
+) -> Result<()> {
+    Ok(command
+        .create_interaction_response(&ctx.http, |response| {
+            response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+        })
+        .await?)
+}
+
 #[async_trait]
 pub(crate) trait CommandRunner {
     async fn run(ctx: &Context, command: &ApplicationCommandInteraction)

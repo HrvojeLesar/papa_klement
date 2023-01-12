@@ -1,6 +1,6 @@
 use anyhow::Result;
 use bantop::BanTopCommand;
-use music::{PlayCommand, SaveHandler};
+use music::{PlayCommand, SaveHandler, SkipCommand};
 use songbird::SerenityInit;
 use std::{env, str::FromStr, sync::Arc};
 use util::CommandRunner;
@@ -35,6 +35,7 @@ pub const UNDERSCOREBANS: &str = "_bans";
 pub(crate) enum SlashCommands {
     BanTop,
     Play,
+    Skip,
 }
 
 impl SlashCommands {
@@ -42,6 +43,7 @@ impl SlashCommands {
         match self {
             Self::BanTop => "bantop",
             Self::Play => "play",
+            Self::Skip => "skip",
         }
     }
 }
@@ -53,6 +55,7 @@ impl FromStr for SlashCommands {
         match input {
             "bantop" => Ok(Self::BanTop),
             "play" => Ok(Self::Play),
+            "skip" => Ok(Self::Skip),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -115,6 +118,7 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
                 commands
                     .create_application_command(|command| BanTopCommand::register(command))
                     .create_application_command(|command| PlayCommand::register(command))
+                    .create_application_command(|command| SkipCommand::register(command))
             })
             .await?;
     }
@@ -128,12 +132,14 @@ async fn handle_application_command(
     let command_response = match command.data.name.as_str().parse()? {
         SlashCommands::BanTop => BanTopCommand::run(ctx, &command).await,
         SlashCommands::Play => PlayCommand::run(ctx, &command).await,
+        SlashCommands::Skip => SkipCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {
         Ok(c) => c,
         Err(err) => {
             error!("Error handling slash command: {:#?}", err);
+            // BUG: Fails to respond if message is deferred
             CommandResponse::new(format!("Error happend: {:#?}", err), false, None, false)
         }
     };

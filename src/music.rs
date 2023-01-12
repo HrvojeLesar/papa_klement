@@ -18,14 +18,13 @@ use serenity::{
 };
 use sha2::{Digest, Sha256};
 use songbird::{
-    ffmpeg,
-    input::{cached::Compressed, Input, Restartable},
+    input::{Input, Restartable},
     Call,
 };
 use tokio::process::Command;
 
 use crate::{
-    util::{retrieve_save_handler, CommandRunner},
+    util::{deferr_response, retrieve_save_handler, CommandRunner},
     CommandResponse, SlashCommands,
 };
 
@@ -223,21 +222,22 @@ impl PlayCommand {
                 .expect("Songbird must be registered in client")
                 .clone();
 
-            let (handler, join_result) = manager.join(guild_id, channel_id).await;
-            join_result?;
-            // handler;
-            // let handler = match manager.get(guild_id) {
-            //     Some(_h) => {
-            //         let (handler, join_result) = manager.join(guild_id, channel_id).await;
-            //         join_result?;
-            //         handler
-            //     }
-            //     None => {
-            //         let (handler, join_result) = manager.join(guild_id, channel_id).await;
-            //         join_result?;
-            //         handler
-            //     }
-            // };
+            let handler = match manager.get(guild_id) {
+                Some(h) => {
+                    {
+                        let mut lock = h.lock().await;
+                        if lock.current_channel().is_none() {
+                            lock.join(channel_id).await?;
+                        }
+                    }
+                    h
+                }
+                None => {
+                    let (handler, join_result) = manager.join(guild_id, channel_id).await;
+                    join_result?;
+                    handler
+                }
+            };
             Ok((None, Some(handler)))
         } else {
             Ok((
@@ -266,14 +266,6 @@ impl PlayCommand {
         query_string.remove(0);
         Ok(query_string)
     }
-
-    async fn deferr_response(ctx: &Context, command: &ApplicationCommandInteraction) -> Result<()> {
-        Ok(command
-            .create_interaction_response(&ctx.http, |response| {
-                response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
-            })
-            .await?)
-    }
 }
 
 #[async_trait]
@@ -296,7 +288,7 @@ impl CommandRunner for PlayCommand {
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
-        Self::deferr_response(ctx, command).await?;
+        deferr_response(ctx, command).await?;
         let query = Self::get_query(command)?;
 
         let (early_response, handler) = Self::handle_connection(ctx, command).await?;
@@ -310,12 +302,10 @@ impl CommandRunner for PlayCommand {
 
         let source = if let Some(saved) = saved_file {
             info!("Reading from disk!");
-            let mut source: Input = Compressed::new(
-                // BUG: Does not check if file actually exists
-                ffmpeg(format!("{}/songbird_cache/{}", *HOME, saved.id)).await?,
-                songbird::driver::Bitrate::BitsPerSecond(128_000),
-            )?
-            .into();
+            let mut source: Input =
+                Restartable::ffmpeg(format!("{}/songbird_cache/{}", *HOME, saved.id), true)
+                    .await?
+                    .into();
             source.metadata.source_url = Some(saved.url);
             source.metadata.title = saved.title;
             source
@@ -359,16 +349,105 @@ impl CommandRunner for PlayCommand {
             source
         };
 
-        {
-            let mut handle = handler.lock().await;
-            handle.enqueue_source(source);
-        }
+        let title = source
+            .metadata
+            .title
+            .clone()
+            .unwrap_or_else(|| "TITLE NOT FOUND".to_string());
+        let mut handle = handler.lock().await;
+        handle.enqueue_source(source);
 
-        Ok(Self::make_response(
-            "Response".to_string(),
-            true,
-            Some(InteractionResponseType::DeferredUpdateMessage),
-        ))
+        if handle.queue().len() == 1 {
+            Ok(Self::make_response(
+                format!("Now playing: {}", title),
+                false,
+                Some(InteractionResponseType::DeferredUpdateMessage),
+            ))
+        } else {
+            Ok(Self::make_response(
+                format!("Added to queue: {}", title),
+                false,
+                Some(InteractionResponseType::DeferredUpdateMessage),
+            ))
+        }
+    }
+
+    fn deferr() -> bool {
+        true
+    }
+
+    fn make_response(
+        content: String,
+        ephemeral: bool,
+        response_type: Option<InteractionResponseType>,
+    ) -> CommandResponse {
+        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
+    }
+}
+
+pub(crate) struct SkipCommand;
+
+#[async_trait]
+impl CommandRunner for SkipCommand {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        command
+            .name(SlashCommands::Skip.as_str())
+            .dm_permission(false)
+            .description("Skip current track")
+    }
+
+    async fn run(
+        ctx: &Context,
+        command: &ApplicationCommandInteraction,
+    ) -> Result<CommandResponse> {
+        deferr_response(ctx, command).await?;
+        let guild_id = match command.guild_id {
+            Some(g) => g,
+            None => {
+                return Ok(Self::make_response(
+                    "Command must be run in a guild!".to_string(),
+                    true,
+                    None,
+                ));
+            }
+        };
+        let manager = songbird::get(ctx)
+            .await
+            .expect("Songbird must be registered in client")
+            .clone();
+        if let Some(handler_lock) = manager.get(guild_id) {
+            let handler = handler_lock.lock().await;
+            let queue = handler.queue();
+            if !queue.is_empty() {
+                let current = match queue.current() {
+                    Some(track) => track,
+                    None => return Err(anyhow!("Failed to retrieve current track")),
+                };
+                let title = current
+                    .metadata()
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| "[TITLE NOT FOUND]".to_string());
+                let _ = queue.skip()?;
+                Ok(Self::make_response(
+                    format!("Skipped: {}", title),
+                    false,
+                    None,
+                ))
+            } else {
+                Ok(Self::make_response(
+                    "There is nothing to skip!".to_string(),
+                    true,
+                    None,
+                ))
+            }
+        } else {
+            Ok(Self::make_response(
+                "Failed to skip".to_string(),
+                true,
+                None,
+            ))
+        }
     }
 
     fn deferr() -> bool {
