@@ -9,9 +9,9 @@ use serenity::{
     prelude::{Context, RwLock, TypeMap},
 };
 
-use crate::{CommandResponse, MongoDatabaseHandle};
+use crate::{music::SaveHandler, CommandResponse, MongoDatabaseHandle, SaveHandlerHandle};
 
-pub async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Database>> {
+pub(crate) async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Database>> {
     let database_handle = {
         data.read()
             .await
@@ -20,6 +20,15 @@ pub async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Databa
             .clone()
     };
     Ok(database_handle)
+}
+
+pub(crate) async fn retrieve_save_handler(data: Arc<RwLock<TypeMap>>) -> Result<Arc<SaveHandler>> {
+    Ok(data
+        .read()
+        .await
+        .get::<SaveHandlerHandle>()
+        .ok_or_else(|| anyhow::anyhow!("Failed to retrieve SaveHandlerHandle from data"))?
+        .clone())
 }
 
 #[async_trait]

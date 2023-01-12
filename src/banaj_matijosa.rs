@@ -66,8 +66,7 @@ impl Handler {
                     .get::<MattBanCooldown>()
                     .ok_or_else(|| anyhow::anyhow!("Failed to retrieve MattBanCooldown!"))?
                     .clone()
-            }
-            .clone();
+            };
             let cooldown_data = cooldown_data_lock.read().await;
             let handle = retrieve_db_handle(ctx.data.clone()).await?;
             let author_id = *message.author.id.as_u64();

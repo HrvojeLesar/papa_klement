@@ -1,6 +1,7 @@
 use anyhow::Result;
 use bantop::BanTopCommand;
-use music::PlayCommand;
+use music::{PlayCommand, SaveHandler};
+use songbird::SerenityInit;
 use std::{env, str::FromStr, sync::Arc};
 use util::CommandRunner;
 
@@ -76,6 +77,11 @@ impl TypeMapKey for MattBanCooldown {
     type Value = Arc<RwLock<Self>>;
 }
 
+pub(crate) struct SaveHandlerHandle;
+impl TypeMapKey for SaveHandlerHandle {
+    type Value = Arc<SaveHandler>;
+}
+
 pub(crate) struct CommandResponse {
     content: String,
     ephemeral: bool,
@@ -101,7 +107,7 @@ async fn handle_application_command(
 ) -> Result<()> {
     let command_response = match command.data.name.as_str().parse()? {
         SlashCommands::BanTop => BanTopCommand::run(ctx, &command).await,
-        SlashCommands::Play => BanTopCommand::run(ctx, &command).await,
+        SlashCommands::Play => PlayCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {
@@ -133,6 +139,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        println!("INTERACTION");
         if let Interaction::ApplicationCommand(command) = interaction {
             match handle_application_command(&ctx, command).await {
                 Ok(_) => {}
@@ -161,6 +168,7 @@ impl EventHandler for Handler {
     }
 
     async fn cache_ready(&self, ctx: Context, _guilds: Vec<GuildId>) {
+        log::info!("Cache ready");
         match self.save_roles_on_startup(&ctx).await {
             Ok(_) => (),
             Err(e) => error!("Save roles on startup error: {}", e),
@@ -175,6 +183,7 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
+        log::info!("Ready");
         match register_slash_commands(&ctx, &ready).await {
             Ok(_) => {}
             Err(e) => {
@@ -183,12 +192,6 @@ impl EventHandler for Handler {
         };
     }
 }
-
-// TODO: Youtube search spawns another youtube-dl instance that saves file to disk for later
-// TODO: If url is provided try finding it in saved files
-// TODO: If search query provided, search youtube, extract url from matadata and check disk replace
-// search with local file if found
-// TODO: Handle downloading same file multiple times at the same time (avoid filename collision)
 
 #[tokio::main]
 async fn main() {
@@ -213,20 +216,24 @@ async fn main() {
         | GatewayIntents::GUILDS
         | GatewayIntents::GUILD_BANS
         | GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::DIRECT_MESSAGES;
+        | GatewayIntents::DIRECT_MESSAGES
+        | GatewayIntents::non_privileged();
     let mut client = Client::builder(token, gateway)
         .event_handler(Handler)
+        .register_songbird()
         .await
         .expect("Error creating client");
 
     {
         let mut lock = client.data.write().await;
-        lock.insert::<MongoDatabaseHandle>(Arc::new(mongo_database));
+        let db_handle = Arc::new(mongo_database);
+        lock.insert::<MongoDatabaseHandle>(db_handle.clone());
         lock.insert::<MongoClientHandle>(Arc::new(mongo_client));
         lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(MattBanCooldown {
             cooldown: 3600,
             last_ban_timestamp: 0,
         })));
+        lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle)));
     }
 
     if let Err(err) = client.start().await {

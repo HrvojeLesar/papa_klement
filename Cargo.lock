@@ -1305,10 +1305,12 @@ dependencies = [
  "log",
  "moka",
  "mongodb",
+ "once_cell",
  "pretty_env_logger",
  "serde",
  "serde_json",
  "serenity",
+ "sha2",
  "songbird",
  "tokio",
 ]
