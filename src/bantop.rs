@@ -5,7 +5,7 @@ use serenity::{
     async_trait,
     builder::CreateApplicationCommand,
     model::prelude::interaction::{
-        application_command::ApplicationCommandInteraction,
+        application_command::ApplicationCommandInteraction, InteractionResponseType,
     },
     prelude::Context,
     utils::MessageBuilder,
@@ -119,9 +119,14 @@ impl CommandRunner for BanTopCommand {
                     user.count
                 ));
         });
-        Ok(CommandResponse {
-            content: builder.build(),
-            ephemeral: false,
-        })
+        Ok(Self::make_response(builder.build(), false, None))
+    }
+
+    fn make_response(
+        content: String,
+        ephemeral: bool,
+        response_type: Option<InteractionResponseType>,
+    ) -> CommandResponse {
+        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
     }
 }

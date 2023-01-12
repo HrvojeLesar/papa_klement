@@ -82,9 +82,29 @@ impl TypeMapKey for SaveHandlerHandle {
     type Value = Arc<SaveHandler>;
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct CommandResponse {
     content: String,
     ephemeral: bool,
+    response_type: InteractionResponseType,
+    has_deferred_response: bool,
+}
+
+impl CommandResponse {
+    pub(crate) fn new(
+        content: String,
+        ephemeral: bool,
+        response_type: Option<InteractionResponseType>,
+        has_deferred_response: bool,
+    ) -> Self {
+        Self {
+            content,
+            ephemeral,
+            response_type: response_type
+                .unwrap_or(InteractionResponseType::ChannelMessageWithSource),
+            has_deferred_response,
+        }
+    }
 }
 
 async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
@@ -114,24 +134,31 @@ async fn handle_application_command(
         Ok(c) => c,
         Err(err) => {
             error!("Error handling slash command: {:#?}", err);
-            CommandResponse {
-                content: format!("Error happend: {:#?}", err),
-                ephemeral: false,
-            }
+            CommandResponse::new(format!("Error happend: {:#?}", err), false, None, false)
         }
     };
 
-    command
-        .create_interaction_response(&ctx.http, |response| {
-            response
-                .kind(InteractionResponseType::ChannelMessageWithSource)
-                .interaction_response_data(|message| {
-                    message
-                        .ephemeral(command_response.ephemeral)
-                        .content(command_response.content)
-                })
-        })
-        .await?;
+    if !command_response.has_deferred_response {
+        command
+            .create_interaction_response(&ctx.http, |response| {
+                response
+                    .kind(command_response.response_type)
+                    .interaction_response_data(|message| {
+                        message
+                            .ephemeral(command_response.ephemeral)
+                            .content(command_response.content)
+                    })
+            })
+            .await?;
+    } else {
+        command
+            .create_followup_message(&ctx.http, |response| {
+                response
+                    .ephemeral(command_response.ephemeral)
+                    .content(command_response.content)
+            })
+            .await?;
+    }
     Ok(())
 }
 

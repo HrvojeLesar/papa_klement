@@ -11,7 +11,8 @@ use serenity::{
     builder::CreateApplicationCommand,
     model::prelude::{
         command::CommandOptionType,
-        interaction::application_command::ApplicationCommandInteraction, ChannelId, ChannelType,
+        interaction::application_command::ApplicationCommandInteraction,
+        interaction::InteractionResponseType, ChannelId, ChannelType,
     },
     prelude::{Context, Mutex, RwLock},
 };
@@ -240,10 +241,11 @@ impl PlayCommand {
             Ok((None, Some(handler)))
         } else {
             Ok((
-                Some(CommandResponse {
-                    content: "Not connected to voice channel".to_string(),
-                    ephemeral: true,
-                }),
+                Some(Self::make_response(
+                    "Not connected to voice channel".to_string(),
+                    true,
+                    None,
+                )),
                 None,
             ))
         }
@@ -263,6 +265,14 @@ impl PlayCommand {
         query_string.remove(query_string.len() - 1);
         query_string.remove(0);
         Ok(query_string)
+    }
+
+    async fn deferr_response(ctx: &Context, command: &ApplicationCommandInteraction) -> Result<()> {
+        Ok(command
+            .create_interaction_response(&ctx.http, |response| {
+                response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
+            })
+            .await?)
     }
 }
 
@@ -286,6 +296,7 @@ impl CommandRunner for PlayCommand {
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
+        Self::deferr_response(ctx, command).await?;
         let query = Self::get_query(command)?;
 
         let (early_response, handler) = Self::handle_connection(ctx, command).await?;
@@ -309,6 +320,7 @@ impl CommandRunner for PlayCommand {
             source.metadata.title = saved.title;
             source
         } else {
+            // WARN: cannot be sure if query is actually url
             let source: Input = if query.starts_with("http") {
                 Restartable::ytdl(query.clone(), true).await?.into()
             } else {
@@ -319,10 +331,11 @@ impl CommandRunner for PlayCommand {
                 Some(url) => url.to_string(),
                 None => {
                     error!("Failed to retrieve url from input!");
-                    return Ok(CommandResponse {
-                        content: "Failed response".to_string(),
-                        ephemeral: true,
-                    });
+                    return Ok(Self::make_response(
+                        "Failed response".to_string(),
+                        true,
+                        None,
+                    ));
                 }
             };
 
@@ -351,9 +364,22 @@ impl CommandRunner for PlayCommand {
             handle.enqueue_source(source);
         }
 
-        Ok(CommandResponse {
-            content: "Response".to_string(),
-            ephemeral: true,
-        })
+        Ok(Self::make_response(
+            "Response".to_string(),
+            true,
+            Some(InteractionResponseType::DeferredUpdateMessage),
+        ))
+    }
+
+    fn deferr() -> bool {
+        true
+    }
+
+    fn make_response(
+        content: String,
+        ephemeral: bool,
+        response_type: Option<InteractionResponseType>,
+    ) -> CommandResponse {
+        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
     }
 }

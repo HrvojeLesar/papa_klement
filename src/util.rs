@@ -5,7 +5,9 @@ use mongodb::Database;
 use serenity::{
     async_trait,
     builder::CreateApplicationCommand,
-    model::prelude::interaction::application_command::ApplicationCommandInteraction,
+    model::prelude::interaction::{
+        application_command::ApplicationCommandInteraction, InteractionResponseType,
+    },
     prelude::{Context, RwLock, TypeMap},
 };
 
@@ -36,4 +38,12 @@ pub(crate) trait CommandRunner {
     async fn run(ctx: &Context, command: &ApplicationCommandInteraction)
         -> Result<CommandResponse>;
     fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand;
+    fn deferr() -> bool {
+        false
+    }
+    fn make_response(
+        content: String,
+        ephemeral: bool,
+        response_type: Option<InteractionResponseType>,
+    ) -> CommandResponse;
 }
