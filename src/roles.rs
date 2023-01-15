@@ -106,6 +106,10 @@ impl Handler {
 
     // TODO: check what changed
     pub async fn save_member_roles_on_update(&self, ctx: &Context, member: &Member) -> Result<()> {
+        info!(
+            "Saving member {} in guild {}",
+            member.user.id.0, member.guild_id.0
+        );
         let database_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let guild_id = *member.guild_id.as_u64() as i64;
         let saved_users_collection = database_handle.collection::<SavedUser>(&guild_id.to_string());

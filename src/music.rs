@@ -2,7 +2,7 @@ use std::{collections::HashSet, env, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use log::{error, info};
+use log::{error, info, warn};
 use mongodb::{bson::doc, Collection, Database};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,10 @@ impl EventHandler for TrackStartEventHandler {
                 if let Some(title) = track_handle.metadata().title.as_ref() {
                     self.context.set_activity(Activity::playing(title)).await;
                 } else {
+                    warn!(
+                        "Set TITLE NOT FOUND for track: {:?}",
+                        track_handle.metadata()
+                    );
                     self.context
                         .set_activity(Activity::playing("TITLE NOT FOUND"))
                         .await;
@@ -184,6 +188,8 @@ impl SaveHandler {
                 None,
             )
             .await?;
+        info!("Saved track to database");
+        info!("Id: {} | url: {} | title: {:?}", hash, url, title);
         Ok(())
     }
 
@@ -217,6 +223,10 @@ impl SaveHandler {
         if contains_url {
             return Err(anyhow!("URL already in save queue!"));
         } else {
+            info!(
+                "Downloading and saving track from url: {} with title: {:?}",
+                url, title
+            );
             {
                 let mut lock = self.save_queue.write().await;
                 lock.insert(hash.to_string());
@@ -292,16 +302,18 @@ impl PlayCommand {
                 .clone();
 
             let handler = match manager.get(guild_id) {
-                Some(h) => {
+                Some(handler) => {
+                    info!("Re-using Call handler");
                     {
-                        let mut lock = h.lock().await;
+                        let mut lock = handler.lock().await;
                         if lock.current_channel().is_none() {
                             lock.join(channel_id).await?;
                         }
                     }
-                    h
+                    handler
                 }
                 None => {
+                    info!("Registering new Call handler and event handlers");
                     let (handler, join_result) = manager.join(guild_id, channel_id).await;
                     join_result?;
                     {
@@ -365,6 +377,7 @@ impl PlayCommand {
 #[async_trait]
 impl CommandRunner for PlayCommand {
     fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        info!("Command registered: {}", SlashCommands::Play.as_str());
         command
             .name(SlashCommands::Play.as_str())
             .dm_permission(false)
@@ -394,8 +407,9 @@ impl CommandRunner for PlayCommand {
         let save_handler = retrieve_save_handler(ctx.data.clone()).await?;
         let saved_file = save_handler.get_saved_file(&query).await?;
 
+        // WARN: Still does not check for file actully existing
         let source = if let Some(saved) = saved_file {
-            info!("Reading from disk!");
+            info!("Reading file from disk!");
             let mut source: Input =
                 Restartable::ffmpeg(format!("{}/songbird_cache/{}", *HOME, saved.id), true)
                     .await?
@@ -404,6 +418,7 @@ impl CommandRunner for PlayCommand {
             source.metadata.title = saved.title;
             source
         } else {
+            info!("Searching youtube for: {}", query);
             // WARN: cannot be sure if query is actually url
             let source: Input = if query.starts_with("http") {
                 Restartable::ytdl(query.clone(), true).await?.into()
@@ -477,6 +492,7 @@ pub(crate) struct SkipCommand;
 #[async_trait]
 impl CommandRunner for SkipCommand {
     fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        info!("Command registered: {}", SlashCommands::Skip.as_str());
         command
             .name(SlashCommands::Skip.as_str())
             .dm_permission(false)
@@ -497,6 +513,7 @@ impl CommandRunner for SkipCommand {
                 ));
             }
         };
+        info!("Skip in guild: {}", guild_id.0);
         let manager = songbird::get(ctx)
             .await
             .expect("Songbird must be registered in client")
@@ -542,6 +559,7 @@ pub(crate) struct StopCommand;
 #[async_trait]
 impl CommandRunner for StopCommand {
     fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        info!("Command registered: {}", SlashCommands::Stop.as_str());
         command
             .name(SlashCommands::Stop.as_str())
             .dm_permission(false)
@@ -562,6 +580,7 @@ impl CommandRunner for StopCommand {
                 ));
             }
         };
+        info!("Stop in guild: {}", guild_id.0);
         let manager = songbird::get(ctx)
             .await
             .expect("Songbird must be registered in client")

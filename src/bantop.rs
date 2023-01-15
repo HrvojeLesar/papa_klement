@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::info;
 use mongodb::{bson::doc, Collection, Cursor};
 use serde::{Deserialize, Serialize};
 use serenity::{
@@ -70,6 +71,7 @@ impl BanTopCommand {
 #[async_trait]
 impl CommandRunner for BanTopCommand {
     fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        info!("Command registered: {}", SlashCommands::BanTop.as_str());
         command
             .name(SlashCommands::BanTop.as_str())
             .description("Ban leaderboard")
@@ -79,6 +81,7 @@ impl CommandRunner for BanTopCommand {
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
+        info!("BanTop command called");
         let guild_id = command
             .guild_id
             .ok_or_else(|| anyhow::anyhow!("Command is not called from a guild!"))?;

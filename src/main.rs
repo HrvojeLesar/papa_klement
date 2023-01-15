@@ -5,7 +5,7 @@ use songbird::SerenityInit;
 use std::{env, str::FromStr, sync::Arc};
 use util::CommandRunner;
 
-use log::error;
+use log::{error, info};
 use mongodb::{options::ClientOptions, Database};
 use serenity::{
     async_trait,
@@ -127,6 +127,7 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
             })
             .await?;
     }
+    info!("Successfully registered slash commands");
     Ok(())
 }
 
@@ -178,7 +179,6 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        println!("INTERACTION");
         if let Interaction::ApplicationCommand(command) = interaction {
             match handle_application_command(&ctx, command).await {
                 Ok(_) => {}
@@ -233,6 +233,8 @@ impl EventHandler for Handler {
 }
 
 // TODO: handle forceful disconnects (remove presence, queue)
+// TODO: after forced disconnect register a scheduler, for removing songbird Call object
+// (songbird::remove...)
 // TODO: queue
 // TODO: all AoC stuff
 
