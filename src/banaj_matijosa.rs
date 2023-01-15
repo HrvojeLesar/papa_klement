@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use log::error;
 use serde::{Deserialize, Serialize};
 use serenity::{futures::StreamExt, model::prelude::Message, prelude::Context};
 
@@ -67,11 +66,14 @@ impl Handler {
                     .ok_or_else(|| anyhow::anyhow!("Failed to retrieve MattBanCooldown!"))?
                     .clone()
             };
-            let cooldown_data = cooldown_data_lock.read().await;
+            let (cooldown, last_ban_timestamp) = {
+                let cooldown_data = cooldown_data_lock.read().await;
+                (cooldown_data.cooldown, cooldown_data.last_ban_timestamp)
+            };
             let handle = retrieve_db_handle(ctx.data.clone()).await?;
             let author_id = *message.author.id.as_u64();
 
-            if time_now - cooldown_data.cooldown > cooldown_data.last_ban_timestamp {
+            if time_now - cooldown > last_ban_timestamp {
                 if let Some(guild) = ctx
                     .cache
                     .guilds()
@@ -82,48 +84,24 @@ impl Handler {
                     while let Some(member_result) = members_stream.next().await {
                         let member = member_result?;
                         if *member.user.id.as_u64() == MATTID {
-                            let http = ctx.http.clone();
-                            drop(cooldown_data);
-                            let message = message.clone();
-                            tokio::spawn(async move {
-                                let channel = match message.channel(&http).await {
-                                    Ok(c) => c,
-                                    Err(e) => {
-                                        error!("Failed getting channel: {:#?}", e);
-                                        return;
-                                    }
-                                };
-                                match channel
-                                    .id()
-                                    .send_message(&http, |f| {
-                                        f.content("Ajde bok Matijoš!").tts(true)
-                                    })
-                                    .await
-                                {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        error!("Failed sending message: {:#?}", e);
-                                        return;
-                                    }
-                                }
-                                tokio::time::sleep(Duration::from_secs(4)).await;
-                                match member.ban(&http, 0).await {
-                                    Ok(_) => {}
-                                    Err(e) => error!("Ban failed: {:#?}", e),
-                                }
+                            message
+                                .channel(&ctx.http)
+                                .await?
+                                .id()
+                                .send_message(&ctx.http, |f| {
+                                    f.content("Ajde bok Matijoš!").tts(true)
+                                })
+                                .await?;
+                            tokio::time::sleep(Duration::from_secs(4)).await;
+                            member.ban(&ctx.http, 0).await?;
+                            {
                                 let mut cooldown_data = cooldown_data_lock.write().await;
                                 cooldown_data.last_ban_timestamp = time_now;
-                                let collection = handle.collection::<MattBan>(MATT_BAN_COLLECTION);
-                                match collection
-                                    .insert_one(MattBan::new(author_id, true), None)
-                                    .await
-                                {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        error!("Failed recording ban: {:#?}", e);
-                                    }
-                                }
-                            });
+                            }
+                            handle
+                                .collection::<MattBan>(MATT_BAN_COLLECTION)
+                                .insert_one(MattBan::new(author_id, true), None)
+                                .await?;
                             break;
                         }
                     }
@@ -136,7 +114,7 @@ impl Handler {
                     .send_message(&ctx.http, |f| {
                         f.content(&format!(
                             "Nečem ga još banati! ({} s)",
-                            cooldown_data.cooldown - (time_now - cooldown_data.last_ban_timestamp)
+                            cooldown - (time_now - last_ban_timestamp)
                         ))
                     })
                     .await?;
