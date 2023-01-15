@@ -31,6 +31,7 @@ mod unban;
 mod util;
 
 pub const UNDERSCOREBANS: &str = "_bans";
+const MONGODB_NAME: &str = "papa_klement";
 
 pub(crate) enum SlashCommands {
     BanTop,
@@ -231,6 +232,10 @@ impl EventHandler for Handler {
     }
 }
 
+// TODO: handle forceful disconnects (remove presence, queue)
+// TODO: queue
+// TODO: all AoC stuff
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().expect(".env file not found");
@@ -246,7 +251,7 @@ async fn main() {
     mongo_client_options.app_name = Some("Papa_Klement".to_string());
     let mongo_client = mongodb::Client::with_options(mongo_client_options).unwrap();
 
-    let mongo_database = mongo_client.database("papa_klement");
+    let mongo_database = mongo_client.database(MONGODB_NAME);
 
     let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN env variable is not defined!");
     let gateway = GatewayIntents::GUILD_MEMBERS

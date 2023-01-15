@@ -2,13 +2,9 @@ use anyhow::Result;
 use mongodb::{bson::doc, Collection, Cursor};
 use serde::{Deserialize, Serialize};
 use serenity::{
-    async_trait,
-    builder::CreateApplicationCommand,
-    model::prelude::interaction::{
-        application_command::ApplicationCommandInteraction,
-    },
-    prelude::Context,
-    utils::MessageBuilder,
+    async_trait, builder::CreateApplicationCommand,
+    model::prelude::interaction::application_command::ApplicationCommandInteraction,
+    prelude::Context, utils::MessageBuilder,
 };
 
 use crate::{

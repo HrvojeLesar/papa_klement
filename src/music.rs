@@ -22,7 +22,7 @@ use serenity::{
 use sha2::{Digest, Sha256};
 use songbird::{
     input::{Input, Restartable},
-    Call, Event, EventContext, EventHandler,
+    Call, CoreEvent, Event, EventContext, EventHandler,
 };
 use tokio::process::Command;
 
@@ -34,6 +34,8 @@ use crate::{
 const QUERY: &str = "query";
 static HOME: Lazy<String> =
     Lazy::new(|| env::var("HOME").expect("HOME environment variable is required!"));
+
+const CACHED_AUDIO_COLLECTION: &str = "cached_audio";
 
 type InvalidCommandUsage = CommandResponse;
 
@@ -90,6 +92,27 @@ impl EventHandler for TrackEndEventHandler {
     }
 }
 
+struct DriverDisconnectHandler {
+    context: Arc<Context>,
+    call_handler: Arc<Mutex<Call>>,
+}
+
+#[async_trait]
+impl EventHandler for DriverDisconnectHandler {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::DriverDisconnect(dd) = ctx {
+            if dd.reason.is_some() {
+                let lock = self.call_handler.lock().await;
+                if lock.current_channel().is_none() {
+                    lock.queue().stop();
+                    self.context.set_presence(None, OnlineStatus::Online).await;
+                }
+            }
+        }
+        None
+    }
+}
+
 pub(crate) struct SaveHandler {
     save_queue: RwLock<HashSet<String>>,
     db_handle: Arc<Database>,
@@ -106,7 +129,7 @@ impl SaveHandler {
     }
 
     fn get_collection(&self) -> Collection<CachedAudioRecord> {
-        self.db_handle.collection("cached_audio")
+        self.db_handle.collection(CACHED_AUDIO_COLLECTION)
     }
 
     async fn get_hash(&self, input: &str) -> Result<String> {
@@ -148,7 +171,7 @@ impl SaveHandler {
     ) -> Result<()> {
         let collection = self
             .db_handle
-            .collection::<CachedAudioRecord>("cached_audio");
+            .collection::<CachedAudioRecord>(CACHED_AUDIO_COLLECTION);
         collection
             .insert_one(
                 CachedAudioRecord {
@@ -294,6 +317,13 @@ impl PlayCommand {
                         lock.add_global_event(
                             Event::Track(songbird::TrackEvent::End),
                             TrackEndEventHandler {
+                                call_handler: handler.clone(),
+                                context: context_arc.clone(),
+                            },
+                        );
+                        lock.add_global_event(
+                            Event::Core(CoreEvent::DriverDisconnect),
+                            DriverDisconnectHandler {
                                 call_handler: handler.clone(),
                                 context: context_arc,
                             },
