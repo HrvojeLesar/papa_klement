@@ -1,4 +1,8 @@
-use std::{collections::HashSet, env, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    env,
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -13,18 +17,18 @@ use serenity::{
         prelude::{
             command::CommandOptionType,
             interaction::application_command::ApplicationCommandInteraction,
-            interaction::InteractionResponseType, Activity, ChannelId, ChannelType,
+            interaction::InteractionResponseType, Activity, ChannelId, ChannelType, GuildId,
         },
         user::OnlineStatus,
     },
-    prelude::{Context, Mutex, RwLock},
+    prelude::{Context, Mutex, RwLock, TypeMapKey},
 };
 use sha2::{Digest, Sha256};
 use songbird::{
     input::{Input, Restartable},
     Call, CoreEvent, Event, EventContext, EventHandler,
 };
-use tokio::process::Command;
+use tokio::{process::Command, task::JoinHandle};
 
 use crate::{
     util::{deferr_response, retrieve_save_handler, CommandRunner},
@@ -36,6 +40,7 @@ static HOME: Lazy<String> =
     Lazy::new(|| env::var("HOME").expect("HOME environment variable is required!"));
 
 const CACHED_AUDIO_COLLECTION: &str = "cached_audio";
+const DISCONNECT_AFTER: u64 = 5 * 60;
 
 type InvalidCommandUsage = CommandResponse;
 
@@ -51,6 +56,66 @@ struct CachedAudioRecord {
 
 struct TrackStartEventHandler {
     context: Arc<Context>,
+}
+
+pub(crate) struct QueuedDisconnect {
+    queue: HashMap<GuildId, JoinHandle<()>>,
+}
+
+impl QueuedDisconnect {
+    pub(crate) fn new() -> Self {
+        Self {
+            queue: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn insert_handle(
+        &mut self,
+        guild_id: GuildId,
+        songbird_handler: Arc<Mutex<Call>>,
+        disconnect_after_secs: Option<u64>,
+    ) {
+        println!("INSERTING DISCONNECT HANDLE");
+        if self.queue.get(&guild_id).is_some() {
+            println!("{:#?}", self.queue);
+            self.remove_handle(&guild_id);
+        }
+        self.queue.insert(
+            guild_id,
+            self.make_disconnect_queue_handle(
+                disconnect_after_secs.unwrap_or(DISCONNECT_AFTER),
+                songbird_handler,
+            ),
+        );
+    }
+
+    // WARN: self.queue should shrink in some cases to release memory
+    pub(crate) fn remove_handle(&mut self, guild_id: &GuildId) {
+        if let Some(handle) = self.queue.remove(guild_id) {
+            println!("REMOVED DISCONNECT HANDLE");
+            handle.abort();
+        }
+    }
+
+    fn make_disconnect_queue_handle(
+        &self,
+        disconnect_after_secs: u64,
+        songbird_handler: Arc<Mutex<Call>>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(disconnect_after_secs)).await;
+            {
+                let mut lock = songbird_handler.lock().await;
+                if let Err(e) = lock.leave().await {
+                    error!("Disconnect failed: {:?}", e);
+                }
+            }
+        })
+    }
+}
+
+impl TypeMapKey for QueuedDisconnect {
+    type Value = Arc<RwLock<Self>>;
 }
 
 #[async_trait]
@@ -76,6 +141,7 @@ impl EventHandler for TrackStartEventHandler {
 }
 
 struct TrackEndEventHandler {
+    guild_id: GuildId,
     call_handler: Arc<Mutex<Call>>,
     context: Arc<Context>,
 }
@@ -90,7 +156,18 @@ impl EventHandler for TrackEndEventHandler {
             };
             if is_empty {
                 self.context.set_presence(None, OnlineStatus::Online).await;
-                // TODO: Add 5 minute sleep for disconnect
+                let queued_disconnects = self
+                    .context
+                    .data
+                    .read()
+                    .await
+                    .get::<QueuedDisconnect>()
+                    .expect("QueuedDisconnect must be present!")
+                    .clone();
+                {
+                    let mut lock = queued_disconnects.write().await;
+                    lock.insert_handle(self.guild_id, self.call_handler.clone(), None);
+                }
             }
         }
         None
@@ -98,6 +175,7 @@ impl EventHandler for TrackEndEventHandler {
 }
 
 struct DriverDisconnectHandler {
+    guild_id: GuildId,
     context: Arc<Context>,
     call_handler: Arc<Mutex<Call>>,
 }
@@ -111,6 +189,18 @@ impl EventHandler for DriverDisconnectHandler {
                 if lock.current_channel().is_none() {
                     lock.queue().stop();
                     self.context.set_presence(None, OnlineStatus::Online).await;
+                    let queued_disconnects = self
+                        .context
+                        .data
+                        .read()
+                        .await
+                        .get::<QueuedDisconnect>()
+                        .expect("QueuedDisconnect must be present!")
+                        .clone();
+                    {
+                        let mut lock = queued_disconnects.write().await;
+                        lock.remove_handle(&self.guild_id);
+                    }
                 }
             }
         }
@@ -330,6 +420,7 @@ impl PlayCommand {
                         lock.add_global_event(
                             Event::Track(songbird::TrackEvent::End),
                             TrackEndEventHandler {
+                                guild_id,
                                 call_handler: handler.clone(),
                                 context: context_arc.clone(),
                             },
@@ -337,6 +428,7 @@ impl PlayCommand {
                         lock.add_global_event(
                             Event::Core(CoreEvent::DriverDisconnect),
                             DriverDisconnectHandler {
+                                guild_id,
                                 call_handler: handler.clone(),
                                 context: context_arc,
                             },
@@ -469,6 +561,19 @@ impl CommandRunner for PlayCommand {
         handle.enqueue_source(source);
 
         if handle.queue().len() == 1 {
+            let queued_disconnects = ctx
+                .data
+                .read()
+                .await
+                .get::<QueuedDisconnect>()
+                .expect("QueuedDisconnect must be present!")
+                .clone();
+            {
+                let mut lock = queued_disconnects.write().await;
+                if let Some(guild_id) = command.guild_id {
+                    lock.remove_handle(&guild_id);
+                }
+            }
             ctx.set_activity(Activity::playing(&title)).await;
             Ok(Self::make_response(
                 format!("Now playing: {}", title),
@@ -589,8 +694,9 @@ impl CommandRunner for StopCommand {
             .clone();
         if let Some(handler_lock) = manager.get(guild_id) {
             let mut handler = handler_lock.lock().await;
-            let queue = handler.queue();
-            queue.stop();
+            // WARN: queue is cleared in event handler
+            // let queue = handler.queue();
+            // queue.stop();
             ctx.set_presence(None, OnlineStatus::Online).await;
             handler.leave().await?;
             Ok(Self::make_response("Stopping".to_string(), false, None))

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use banaj_matijosa::{BAN_COOLDOWN_TIME, MATT_BAN_COLLECTION};
 use bantop::BanTopCommand;
-use music::{PlayCommand, SaveHandler, SkipCommand, StopCommand};
+use music::{PlayCommand, QueuedDisconnect, SaveHandler, SkipCommand, StopCommand};
 use serde::{Deserialize, Serialize};
 use songbird::SerenityInit;
 use std::{env, str::FromStr, sync::Arc};
@@ -235,8 +235,6 @@ impl EventHandler for Handler {
     }
 }
 
-// TODO: handle forceful disconnects (remove presence, queue)
-// TODO: after forced disconnect register a scheduler, for removing songbird Call object
 // (songbird::remove...)
 // TODO: queue
 // TODO: all AoC stuff
@@ -246,7 +244,7 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().expect(".env file not found");
 
     pretty_env_logger::env_logger::init_from_env(
-        pretty_env_logger::env_logger::Env::new().default_filter_or("info"),
+        pretty_env_logger::env_logger::Env::new().default_filter_or("warn"),
     );
 
     let mut mongo_client_options =
@@ -293,6 +291,7 @@ async fn main() -> Result<()> {
             }
         }
         lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle)));
+        lock.insert::<QueuedDisconnect>(Arc::new(RwLock::new(QueuedDisconnect::new())));
     }
 
     if let Err(err) = client.start().await {
