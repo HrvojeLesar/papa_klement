@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use mongodb::bson::doc;
 use serde::{Deserialize, Serialize};
 use serenity::{futures::StreamExt, model::prelude::Message, prelude::Context};
 
@@ -28,6 +29,8 @@ const ALLOWEDMEMBERS: &[u64] = &[
     // Seba
     155013213811900416,
 ];
+pub const MATT_BAN_COLLECTION: &str = "matt_ban";
+pub const BAN_COOLDOWN_TIME: i64 = 3600;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct MattBan {
@@ -35,8 +38,6 @@ struct MattBan {
     timestamp: DateTime<Utc>,
     success: bool,
 }
-
-const MATT_BAN_COLLECTION: &str = "matt_ban";
 
 impl MattBan {
     fn new(banned_by: u64, success: bool) -> Self {
@@ -101,6 +102,14 @@ impl Handler {
                             handle
                                 .collection::<MattBan>(MATT_BAN_COLLECTION)
                                 .insert_one(MattBan::new(author_id, true), None)
+                                .await?;
+                            handle
+                                .collection::<MattBanCooldown>(MATT_BAN_COLLECTION)
+                                .find_one_and_update(
+                                    doc! {"_id": "COOLDOWN"},
+                                    doc! {"$set": {"cooldown": BAN_COOLDOWN_TIME, "last_ban_timestamp": time_now}},
+                                    None,
+                                )
                                 .await?;
                             break;
                         }

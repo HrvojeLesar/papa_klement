@@ -1,12 +1,14 @@
 use anyhow::Result;
+use banaj_matijosa::{BAN_COOLDOWN_TIME, MATT_BAN_COLLECTION};
 use bantop::BanTopCommand;
 use music::{PlayCommand, SaveHandler, SkipCommand, StopCommand};
+use serde::{Deserialize, Serialize};
 use songbird::SerenityInit;
 use std::{env, str::FromStr, sync::Arc};
 use util::CommandRunner;
 
 use log::{error, info};
-use mongodb::{options::ClientOptions, Database};
+use mongodb::{bson::doc, options::ClientOptions, Database};
 use serenity::{
     async_trait,
     model::{
@@ -75,6 +77,7 @@ impl TypeMapKey for MongoClientHandle {
     type Value = Arc<mongodb::Client>;
 }
 
+#[derive(Serialize, Deserialize)]
 pub(crate) struct MattBanCooldown {
     pub(crate) cooldown: i64,
     pub(crate) last_ban_timestamp: i64,
@@ -239,11 +242,11 @@ impl EventHandler for Handler {
 // TODO: all AoC stuff
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     dotenvy::dotenv().expect(".env file not found");
 
     pretty_env_logger::env_logger::init_from_env(
-        pretty_env_logger::env_logger::Env::new().default_filter_or("warn"),
+        pretty_env_logger::env_logger::Env::new().default_filter_or("info"),
     );
 
     let mut mongo_client_options =
@@ -270,18 +273,31 @@ async fn main() {
         .expect("Error creating client");
 
     {
+        let last_ban = {
+            let collection = mongo_database.collection::<MattBanCooldown>(MATT_BAN_COLLECTION);
+            collection.find_one(doc! {"_id": "COOLDOWN"}, None).await?
+        };
         let mut lock = client.data.write().await;
         let db_handle = Arc::new(mongo_database);
         lock.insert::<MongoDatabaseHandle>(db_handle.clone());
         lock.insert::<MongoClientHandle>(Arc::new(mongo_client));
-        lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(MattBanCooldown {
-            cooldown: 3600,
-            last_ban_timestamp: 0,
-        })));
+        match last_ban {
+            Some(lb) => {
+                lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(lb)));
+            }
+            None => {
+                lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(MattBanCooldown {
+                    cooldown: BAN_COOLDOWN_TIME,
+                    last_ban_timestamp: 0,
+                })));
+            }
+        }
         lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle)));
     }
 
     if let Err(err) = client.start().await {
         println!("Client error: {:?}", err);
     }
+
+    Ok(())
 }

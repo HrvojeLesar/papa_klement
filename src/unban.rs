@@ -7,7 +7,7 @@ use mongodb::{bson::doc, IndexModel};
 use serde::{Deserialize, Serialize};
 use serenity::{
     model::{
-        prelude::{Action, GuildId, MemberAction, UserId},
+        prelude::{Action, GuildId, MemberAction},
         user::User,
     },
     prelude::Context,
@@ -94,11 +94,7 @@ impl Handler {
         }
         match invite {
             Some(inv) => {
-                UserId(132286945031094272)
-                    .to_user(&ctx.http)
-                    .await?
-                    .dm(&ctx.http, |f| f.content(inv.url()))
-                    .await?;
+                banned_user.dm(&ctx.http, |f| f.content(inv.url())).await?;
             }
             None => return Err(anyhow::anyhow!("Failed to create invite!")),
         }

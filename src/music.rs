@@ -90,6 +90,7 @@ impl EventHandler for TrackEndEventHandler {
             };
             if is_empty {
                 self.context.set_presence(None, OnlineStatus::Online).await;
+                // TODO: Add 5 minute sleep for disconnect
             }
         }
         None
@@ -408,6 +409,7 @@ impl CommandRunner for PlayCommand {
         let saved_file = save_handler.get_saved_file(&query).await?;
 
         // WARN: Still does not check for file actully existing
+        // BUG:  Still does not check for file actully existing
         let source = if let Some(saved) = saved_file {
             info!("Reading file from disk!");
             let mut source: Input =
