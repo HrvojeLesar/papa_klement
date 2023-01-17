@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
-use mongodb::bson::doc;
+use mongodb::{bson::doc, options::FindOneAndUpdateOptions};
 use serde::{Deserialize, Serialize};
 use serenity::{futures::StreamExt, model::prelude::Message, prelude::Context};
 
@@ -108,7 +108,7 @@ impl Handler {
                                 .find_one_and_update(
                                     doc! {"_id": "COOLDOWN"},
                                     doc! {"$set": {"cooldown": BAN_COOLDOWN_TIME, "last_ban_timestamp": time_now}},
-                                    None,
+                                    Some(FindOneAndUpdateOptions::builder().upsert(true).build()),
                                 )
                                 .await?;
                             break;
