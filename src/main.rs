@@ -25,6 +25,8 @@ use serenity::{
     Client,
 };
 
+use crate::music::QueueCommand;
+
 mod banaj_matijosa;
 mod bantop;
 mod music;
@@ -40,6 +42,7 @@ pub(crate) enum SlashCommands {
     Play,
     Skip,
     Stop,
+    Queue,
 }
 
 impl SlashCommands {
@@ -49,6 +52,7 @@ impl SlashCommands {
             Self::Play => "play",
             Self::Skip => "skip",
             Self::Stop => "stop",
+            Self::Queue => "queue",
         }
     }
 }
@@ -62,6 +66,7 @@ impl FromStr for SlashCommands {
             "play" => Ok(Self::Play),
             "skip" => Ok(Self::Skip),
             "stop" => Ok(Self::Stop),
+            "queue" => Ok(Self::Queue),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -127,6 +132,7 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
                     .create_application_command(|command| PlayCommand::register(command))
                     .create_application_command(|command| SkipCommand::register(command))
                     .create_application_command(|command| StopCommand::register(command))
+                    .create_application_command(|command| QueueCommand::register(command))
             })
             .await?;
     }
@@ -143,6 +149,7 @@ async fn handle_application_command(
         SlashCommands::Play => PlayCommand::run(ctx, &command).await,
         SlashCommands::Skip => SkipCommand::run(ctx, &command).await,
         SlashCommands::Stop => StopCommand::run(ctx, &command).await,
+        SlashCommands::Queue => QueueCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {

@@ -1,7 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
     env,
+    fmt::Display,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -22,6 +24,7 @@ use serenity::{
         user::OnlineStatus,
     },
     prelude::{Context, Mutex, RwLock, TypeMapKey},
+    utils::MessageBuilder,
 };
 use sha2::{Digest, Sha256};
 use songbird::{
@@ -707,5 +710,126 @@ impl CommandRunner for StopCommand {
                 None,
             ))
         }
+    }
+}
+
+pub(crate) struct QueueCommand;
+struct MinutesDisplay(String);
+
+impl From<Duration> for MinutesDisplay {
+    fn from(duration: Duration) -> Self {
+        let seconds = duration.as_secs();
+        let minutes = seconds / 60;
+        Self(format!("{:02}:{:02}", minutes, seconds - minutes * 60))
+    }
+}
+
+impl Display for MinutesDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[async_trait]
+impl CommandRunner for QueueCommand {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        info!("Command registered: {}", SlashCommands::Queue.as_str());
+        command
+            .name(SlashCommands::Queue.as_str())
+            .dm_permission(false)
+            .description("Fetches current track queue.")
+    }
+
+    async fn run(
+        ctx: &Context,
+        command: &ApplicationCommandInteraction,
+    ) -> Result<CommandResponse> {
+        let guild_id = match command.guild_id {
+            Some(g) => g,
+            None => {
+                return Ok(Self::make_response(
+                    "Command must be run in a guild!".to_string(),
+                    true,
+                    None,
+                ));
+            }
+        };
+        info!("Stop in guild: {}", guild_id.0);
+        let manager = songbird::get(ctx)
+            .await
+            .expect("Songbird must be registered in client")
+            .clone();
+        if let Some(handler_lock) = manager.get(guild_id) {
+            let queue = {
+                let handler = handler_lock.lock().await;
+                handler.queue().current_queue()
+            };
+
+            if queue.is_empty() {
+                return Ok(Self::make_response(
+                    "Queue is empty".to_string(),
+                    false,
+                    None,
+                ));
+            }
+            let mut builder = MessageBuilder::new();
+            let (current_track_position, current_track_length, title) = {
+                let track = queue.first().ok_or_else(|| anyhow!("Queue is empty"))?;
+                (
+                    track.get_info().await?.position,
+                    track.metadata().duration.unwrap_or(Duration::from_secs(0)),
+                    track
+                        .metadata()
+                        .title
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or_else(|| "TITLE NOT FOUND!".to_string()),
+                )
+            };
+            builder
+                .push_bold("Currently playing: ")
+                .push(title)
+                .push_bold_line(format!(
+                    " | {} / {}",
+                    MinutesDisplay::from(current_track_position),
+                    MinutesDisplay::from(current_track_length)
+                ));
+            let mut time_until = Some(current_track_length - current_track_position);
+            for (i, track) in queue.iter().skip(1).enumerate() {
+                if builder.0.len() >= 2000 {
+                    break;
+                }
+                builder.push_bold(format!("{}. ", i + 1));
+                match track.metadata().title.as_ref() {
+                    Some(title) => builder.push(title),
+                    None => builder.push("NO TITLE FOUND"),
+                };
+                if let (Some(track_duration), Some(time_until)) =
+                    (track.metadata().duration.as_ref(), time_until.as_mut())
+                {
+                    builder.push_bold_line(format!(" | {}", MinutesDisplay::from(*time_until)));
+                    *time_until += *track_duration;
+                } else {
+                    builder.push_bold_line("????");
+                    time_until = None;
+                }
+            }
+            let queue_response = if builder.0.len() >= 2000 {
+                const TOO_LONG: &str = "...\n**Queue is too long to display**";
+                let mut queue = builder.build();
+                queue.replace_range(2000 - TOO_LONG.len()..2000, TOO_LONG);
+                queue.truncate(2000);
+
+                queue
+            } else {
+                builder.build()
+            };
+            return Ok(Self::make_response(queue_response, false, None));
+        }
+        Ok(Self::make_response(
+            "Failed retrieving queue".to_string(),
+            false,
+            None,
+        ))
     }
 }
