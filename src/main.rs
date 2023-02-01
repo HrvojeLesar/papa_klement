@@ -1,14 +1,19 @@
 use anyhow::Result;
+use aoc::start_aoc_auto_fetch;
 use banaj_matijosa::{BAN_COOLDOWN_TIME, MATT_BAN_COLLECTION};
 use bantop::BanTopCommand;
 use music::{PlayCommand, QueuedDisconnect, SaveHandler, SkipCommand, StopCommand};
 use serde::{Deserialize, Serialize};
 use songbird::SerenityInit;
-use std::{env, str::FromStr, sync::Arc};
+use std::{collections::HashMap, env, str::FromStr, sync::Arc};
 use util::CommandRunner;
 
 use log::{error, info};
-use mongodb::{bson::doc, options::ClientOptions, Database};
+use mongodb::{
+    bson::{doc, to_bson},
+    options::{ClientOptions, FindOneAndUpdateOptions},
+    Database,
+};
 use serenity::{
     async_trait,
     model::{
@@ -25,8 +30,9 @@ use serenity::{
     Client,
 };
 
-use crate::music::QueueCommand;
+use crate::{aoc::SpeedrunCommand, music::QueueCommand};
 
+mod aoc;
 mod banaj_matijosa;
 mod bantop;
 mod music;
@@ -43,6 +49,7 @@ pub(crate) enum SlashCommands {
     Skip,
     Stop,
     Queue,
+    Speedrun,
 }
 
 impl SlashCommands {
@@ -53,6 +60,7 @@ impl SlashCommands {
             Self::Skip => "skip",
             Self::Stop => "stop",
             Self::Queue => "queue",
+            Self::Speedrun => "speedrun",
         }
     }
 }
@@ -67,6 +75,7 @@ impl FromStr for SlashCommands {
             "skip" => Ok(Self::Skip),
             "stop" => Ok(Self::Stop),
             "queue" => Ok(Self::Queue),
+            "speedrun" => Ok(Self::Speedrun),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -133,6 +142,7 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
                     .create_application_command(|command| SkipCommand::register(command))
                     .create_application_command(|command| StopCommand::register(command))
                     .create_application_command(|command| QueueCommand::register(command))
+                    .create_application_command(|command| SpeedrunCommand::register(command))
             })
             .await?;
     }
@@ -150,6 +160,7 @@ async fn handle_application_command(
         SlashCommands::Skip => SkipCommand::run(ctx, &command).await,
         SlashCommands::Stop => StopCommand::run(ctx, &command).await,
         SlashCommands::Queue => QueueCommand::run(ctx, &command).await,
+        SlashCommands::Speedrun => SpeedrunCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {
@@ -236,14 +247,13 @@ impl EventHandler for Handler {
         match register_slash_commands(&ctx, &ready).await {
             Ok(_) => {}
             Err(e) => {
-                println!("Ready error: {:#?}", e);
+                error!("Ready error: {:#?}", e);
             }
         };
     }
 }
 
 // (songbird::remove...)
-// TODO: queue
 // TODO: all AoC stuff
 
 #[tokio::main]
@@ -297,8 +307,10 @@ async fn main() -> Result<()> {
                 })));
             }
         }
-        lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle)));
+        lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle.clone())));
         lock.insert::<QueuedDisconnect>(Arc::new(RwLock::new(QueuedDisconnect::new())));
+
+        tokio::spawn(start_aoc_auto_fetch(db_handle.clone()));
     }
 
     if let Err(err) = client.start().await {
