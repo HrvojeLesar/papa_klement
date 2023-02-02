@@ -30,7 +30,10 @@ use serenity::{
     Client,
 };
 
-use crate::{aoc::SpeedrunCommand, music::QueueCommand};
+use crate::{
+    aoc::{AddPrivateLeaderboardCommand, SetSessionCookieCommand, SpeedrunCommand},
+    music::QueueCommand,
+};
 
 mod aoc;
 mod banaj_matijosa;
@@ -50,6 +53,8 @@ pub(crate) enum SlashCommands {
     Stop,
     Queue,
     Speedrun,
+    AddPrivateLeaderboard,
+    SetSessionCookie,
 }
 
 impl SlashCommands {
@@ -61,6 +66,8 @@ impl SlashCommands {
             Self::Stop => "stop",
             Self::Queue => "queue",
             Self::Speedrun => "speedrun",
+            Self::AddPrivateLeaderboard => "addprivateleaderboard",
+            Self::SetSessionCookie => "setsessioncookie",
         }
     }
 }
@@ -76,6 +83,8 @@ impl FromStr for SlashCommands {
             "stop" => Ok(Self::Stop),
             "queue" => Ok(Self::Queue),
             "speedrun" => Ok(Self::Speedrun),
+            "addprivateleaderboard" => Ok(Self::AddPrivateLeaderboard),
+            "setsessioncookie" => Ok(Self::SetSessionCookie),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -143,6 +152,12 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
                     .create_application_command(|command| StopCommand::register(command))
                     .create_application_command(|command| QueueCommand::register(command))
                     .create_application_command(|command| SpeedrunCommand::register(command))
+                    .create_application_command(|command| {
+                        AddPrivateLeaderboardCommand::register(command)
+                    })
+                    .create_application_command(|command| {
+                        SetSessionCookieCommand::register(command)
+                    })
             })
             .await?;
     }
@@ -161,6 +176,10 @@ async fn handle_application_command(
         SlashCommands::Stop => StopCommand::run(ctx, &command).await,
         SlashCommands::Queue => QueueCommand::run(ctx, &command).await,
         SlashCommands::Speedrun => SpeedrunCommand::run(ctx, &command).await,
+        SlashCommands::AddPrivateLeaderboard => {
+            AddPrivateLeaderboardCommand::run(ctx, &command).await
+        }
+        SlashCommands::SetSessionCookie => SetSessionCookieCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {
