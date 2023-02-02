@@ -5,15 +5,11 @@ use bantop::BanTopCommand;
 use music::{PlayCommand, QueuedDisconnect, SaveHandler, SkipCommand, StopCommand};
 use serde::{Deserialize, Serialize};
 use songbird::SerenityInit;
-use std::{collections::HashMap, env, str::FromStr, sync::Arc};
+use std::{env, str::FromStr, sync::Arc};
 use util::CommandRunner;
 
 use log::{error, info};
-use mongodb::{
-    bson::{doc, to_bson},
-    options::{ClientOptions, FindOneAndUpdateOptions},
-    Database,
-};
+use mongodb::{bson::doc, options::ClientOptions, Database};
 use serenity::{
     async_trait,
     model::{
@@ -329,7 +325,7 @@ async fn main() -> Result<()> {
         lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle.clone())));
         lock.insert::<QueuedDisconnect>(Arc::new(RwLock::new(QueuedDisconnect::new())));
 
-        tokio::spawn(start_aoc_auto_fetch(db_handle.clone()));
+        tokio::spawn(start_aoc_auto_fetch(db_handle));
     }
 
     if let Err(err) = client.start().await {

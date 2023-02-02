@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
+use chrono::{Datelike, Utc};
 use log::{error, info, warn};
 use mongodb::{
     bson::{doc, to_bson},
     options::FindOneAndUpdateOptions,
     Collection, Database,
 };
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serenity::{
     async_trait,
     builder::CreateApplicationCommand,
@@ -17,19 +17,21 @@ use serenity::{
         interaction::application_command::ApplicationCommandInteraction, ChannelType, GuildId,
     },
     prelude::Context,
+    utils::MessageBuilder,
 };
-use tokio::time::{interval, Interval};
+use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     util::{retrieve_db_handle, CommandRunner},
-    CommandResponse, MongoDatabaseHandle, SlashCommands,
+    CommandResponse, SlashCommands,
 };
 use anyhow::{anyhow, Result};
 
 const PRIVATE_LEADERBOARDS_COLLECTION: &str = "private_leaderboards";
 
 const PRIVATE_LEADERBOARD_ID_OPTION: &str = "leaderboard_id";
+const DAY_OPTION: &str = "day";
 const YEAR_OPTION: &str = "year";
 const SESSION_COOKIE_OPTION: &str = "session_cookie";
 
@@ -251,19 +253,85 @@ impl CommandRunner for SpeedrunCommand {
             .dm_permission(false)
             .create_option(|opt| {
                 opt.required(false)
-                    .name("day")
+                    .name(DAY_OPTION)
                     .kind(CommandOptionType::Number)
                     .description("Speedrun for selected day")
+                    .channel_types(&[ChannelType::Text])
+            })
+            .create_option(|opt| {
+                opt.required(false)
+                    .name(YEAR_OPTION)
+                    .kind(CommandOptionType::Number)
+                    .description("Speedrun for selected year")
+                    .channel_types(&[ChannelType::Text])
+            })
+            .create_option(|opt| {
+                opt.required(false)
+                    .name(PRIVATE_LEADERBOARD_ID_OPTION)
+                    .kind(CommandOptionType::Number)
+                    .description("Speedrun for selected leaderboard")
                     .channel_types(&[ChannelType::Text])
             })
             .description("AoC Speedrun")
     }
 
+    // TODO: Handle options
     async fn run(
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
-        todo!()
+        let guild_id = command
+            .guild_id
+            .ok_or_else(|| anyhow!("Command must be run in guild"))?;
+        let db_handle = retrieve_db_handle(ctx.data.clone()).await?;
+        let collection =
+            db_handle.collection::<PrivateLeaderboardDatabaseDoc>(PRIVATE_LEADERBOARDS_COLLECTION);
+        if let Some(leaderboard_doc) = collection
+            .find_one(doc! {"guild_id": guild_id.0 as i64}, None)
+            .await?
+        {
+            let now = Utc::now();
+            let month = now.month();
+            let year = if month == 12 {
+                now.year()
+            } else {
+                now.year() - 1
+            };
+            let day = now.day();
+            let mut results = leaderboard_doc
+                .leaderboards
+                .get(&year.to_string())
+                .ok_or_else(|| anyhow!("No leaderboard for selected year"))?
+                .members
+                .values()
+                .filter_map(|member| {
+                    if let Some(day_result) = member.completion_day_level.get(&day.to_string()) {
+                        if let (Some(first), Some(second)) =
+                            (day_result.get("1"), day_result.get("2"))
+                        {
+                            return Some((&member.name, second.get_star_ts - first.get_star_ts));
+                        }
+                    }
+                    None
+                })
+                .collect::<Vec<(&String, i64)>>();
+            results.sort_by(|a, b| a.1.cmp(&b.1));
+            let mut message_builder = MessageBuilder::new();
+            results.iter().for_each(|result| {
+                message_builder.push_line(format!(
+                    "{}: {:#?}",
+                    result.0,
+                    Duration::from_secs(result.1 as u64)
+                ));
+            });
+            Ok(Self::make_response(message_builder.build(), false, None))
+        } else {
+            Ok(Self::make_response(
+                "There are not speedruns".to_string(),
+                false,
+                None,
+            ))
+        }
     }
 }
 
@@ -357,7 +425,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
         let db_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let collection =
             db_handle.collection::<PrivateLeaderboardDatabaseDoc>(PRIVATE_LEADERBOARDS_COLLECTION);
-        if let None = collection
+        if collection
             .find_one(
                 doc! {
                     "guild_id": guild_id.0 as i64,
@@ -366,6 +434,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
                 None,
             )
             .await?
+            .is_none()
         {
             collection
                 .insert_one(
@@ -469,7 +538,7 @@ impl CommandRunner for SetSessionCookieCommand {
         let db_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let collection =
             db_handle.collection::<PrivateLeaderboardDatabaseDoc>(PRIVATE_LEADERBOARDS_COLLECTION);
-        if let Some(_) = collection
+        if collection
             .find_one_and_update(
                 doc! {
                     "guild_id": guild_id.0 as i64,
@@ -484,6 +553,7 @@ impl CommandRunner for SetSessionCookieCommand {
                 None,
             )
             .await?
+            .is_some()
         {
             Ok(Self::make_response(
                 "Successfully set session".to_string(),
