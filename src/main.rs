@@ -1,5 +1,5 @@
 use anyhow::Result;
-use aoc::start_aoc_auto_fetch;
+use aoc::{start_aoc_auto_fetch, RollCommand};
 use banaj_matijosa::{BAN_COOLDOWN_TIME, MATT_BAN_COLLECTION};
 use bantop::BanTopCommand;
 use music::{PlayCommand, QueuedDisconnect, SaveHandler, SkipCommand, StopCommand};
@@ -51,6 +51,7 @@ pub(crate) enum SlashCommands {
     Speedrun,
     AddPrivateLeaderboard,
     SetSessionCookie,
+    Roll,
 }
 
 impl SlashCommands {
@@ -64,6 +65,7 @@ impl SlashCommands {
             Self::Speedrun => "speedrun",
             Self::AddPrivateLeaderboard => "addprivateleaderboard",
             Self::SetSessionCookie => "setsessioncookie",
+            Self::Roll => "roll",
         }
     }
 }
@@ -81,6 +83,7 @@ impl FromStr for SlashCommands {
             "speedrun" => Ok(Self::Speedrun),
             "addprivateleaderboard" => Ok(Self::AddPrivateLeaderboard),
             "setsessioncookie" => Ok(Self::SetSessionCookie),
+            "roll" => Ok(Self::Roll),
             _ => Err(anyhow::anyhow!("Failed to convert string to SlashCommand")),
         }
     }
@@ -154,6 +157,7 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
                     .create_application_command(|command| {
                         SetSessionCookieCommand::register(command)
                     })
+                    .create_application_command(|command| RollCommand::register(command))
             })
             .await?;
     }
@@ -176,6 +180,7 @@ async fn handle_application_command(
             AddPrivateLeaderboardCommand::run(ctx, &command).await
         }
         SlashCommands::SetSessionCookie => SetSessionCookieCommand::run(ctx, &command).await,
+        SlashCommands::Roll => RollCommand::run(ctx, &command).await,
     };
 
     let command_response = match command_response {
@@ -259,6 +264,7 @@ impl EventHandler for Handler {
 
     async fn ready(&self, ctx: Context, ready: Ready) {
         log::info!("Ready");
+        println!("Bot started");
         match register_slash_commands(&ctx, &ready).await {
             Ok(_) => {}
             Err(e) => {

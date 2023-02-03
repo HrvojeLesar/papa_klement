@@ -7,6 +7,7 @@ use mongodb::{
     options::FindOneAndUpdateOptions,
     Collection, Database,
 };
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serenity::{
     async_trait,
@@ -37,6 +38,57 @@ const SESSION_COOKIE_OPTION: &str = "session_cookie";
 
 const INTERVAL_TIME: i64 = 15 * 60;
 const THIRTY_DAYS_TIME: i64 = 60 * 60 * 24 * 30;
+
+const LANGS: &[AoC2022Lang] = &[
+    AoC2022Lang::new("Go", 100, false),
+    AoC2022Lang::new("C#/Java", 100, false),
+    AoC2022Lang::new("C++", 100, false),
+    AoC2022Lang::new("PHP", 100, false),
+    AoC2022Lang::new("Python", 90, false),
+    AoC2022Lang::new("JS/TS", 90, false),
+    AoC2022Lang::new("Lua", 90, false),
+    AoC2022Lang::new("Slobodni izbor", 10, false),
+    AoC2022Lang::new("Matijoš bira", 10, false),
+    AoC2022Lang::new("Bash", 2, false),
+    AoC2022Lang::new("Scratch", 2, false),
+    AoC2022Lang::new("Rust", 2, false),
+    AoC2022Lang::new("C", 2, false),
+    AoC2022Lang::new("Elixir", 1, true),
+    AoC2022Lang::new("Julia", 1, true),
+    AoC2022Lang::new("HolyC", 1, true),
+];
+
+#[allow(dead_code)]
+struct AoC2022Lang<'a> {
+    lang: &'a str,
+    weight: i64,
+    free_reroll: bool,
+}
+
+impl<'a> AoC2022Lang<'a> {
+    const fn new(lang: &'a str, weight: i64, free_reroll: bool) -> Self {
+        Self {
+            lang,
+            weight,
+            free_reroll,
+        }
+    }
+}
+
+const fn lang_weights_pool() -> [i64; LANGS.len()] {
+    let mut pool: [i64; LANGS.len()] = [0; LANGS.len()];
+    pool[0] = LANGS[0].weight;
+    let mut i = 1;
+    while i < LANGS.len() {
+        pool[i] = LANGS[i].weight + pool[i - 1];
+        i += 1;
+    }
+    pool
+}
+
+const fn maximum_weight_value() -> i64 {
+    lang_weights_pool()[LANGS.len() - 1]
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct CompletionDayLevel {
@@ -563,6 +615,50 @@ impl CommandRunner for SetSessionCookieCommand {
         } else {
             Ok(Self::make_response(
                 "Leaderboard not found".to_string(),
+                false,
+                None,
+            ))
+        }
+    }
+}
+
+pub struct RollCommand;
+
+#[async_trait]
+impl CommandRunner for RollCommand {
+    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+        info!("Command registered: {}", SlashCommands::Roll.as_str());
+        command
+            .name(SlashCommands::Roll.as_str())
+            .dm_permission(false)
+            .description("Rolls a programming language")
+    }
+
+    async fn run(
+        _ctx: &Context,
+        _command: &ApplicationCommandInteraction,
+    ) -> Result<CommandResponse> {
+        let weights_pool = lang_weights_pool();
+        let maximum_value = maximum_weight_value();
+
+        let random_number = rand::thread_rng().gen_range(1..=maximum_value);
+        let selected_lang = LANGS
+            .iter()
+            .enumerate()
+            .find(|(i, _)| weights_pool[*i] >= random_number);
+        if let Some(lang) = selected_lang {
+            Ok(Self::make_response(
+                format!(
+                    "{} ({:.2}%)",
+                    lang.1.lang,
+                    (lang.1.weight as f64 / maximum_value as f64) * 100f64
+                ),
+                false,
+                None,
+            ))
+        } else {
+            Ok(Self::make_response(
+                "Dober kod pajdo.".to_string(),
                 false,
                 None,
             ))
