@@ -419,7 +419,7 @@ impl CommandRunner for SpeedrunCommand {
             results.sort_by(|a, b| a.1.cmp(&b.1));
             if results.is_empty() {
                 return Ok(Self::make_response(
-                    "There are not speedruns".to_string(),
+                    "There are no speedruns".to_string(),
                     false,
                     None,
                 ));
@@ -436,7 +436,7 @@ impl CommandRunner for SpeedrunCommand {
             Ok(Self::make_response(message_builder.build(), false, None))
         } else {
             Ok(Self::make_response(
-                "There are not speedruns".to_string(),
+                "There are no speedruns".to_string(),
                 false,
                 None,
             ))
