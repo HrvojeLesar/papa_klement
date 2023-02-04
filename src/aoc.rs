@@ -338,18 +338,67 @@ impl CommandRunner for SpeedrunCommand {
         let db_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let collection =
             db_handle.collection::<PrivateLeaderboardDatabaseDoc>(PRIVATE_LEADERBOARDS_COLLECTION);
-        if let Some(leaderboard_doc) = collection
-            .find_one(doc! {"guild_id": guild_id.0 as i64}, None)
-            .await?
+        let db_query = if let Some(leaderboard_id) = command
+            .data
+            .options
+            .iter()
+            .find(|opt| opt.name == PRIVATE_LEADERBOARD_ID_OPTION)
         {
+            let leaderboard_id = leaderboard_id
+                .value
+                .clone()
+                .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?
+                .as_f64()
+                .ok_or_else(|| anyhow!("Leaderboard ID is not a number"))?
+                as i64;
+            collection.find_one(
+                doc! {
+                    "guild_id": guild_id.0 as i64,
+                    "private_leaderboard_id": leaderboard_id,
+                },
+                None,
+            )
+        } else {
+            collection.find_one(doc! {"guild_id": guild_id.0 as i64}, None)
+        };
+        if let Some(leaderboard_doc) = db_query.await? {
             let now = Utc::now();
             let month = now.month();
-            let year = if month == 12 {
-                now.year()
+            let year = if let Some(year_option) = command
+                .data
+                .options
+                .iter()
+                .find(|opt| opt.name == YEAR_OPTION)
+            {
+                year_option
+                    .value
+                    .clone()
+                    .ok_or_else(|| anyhow!("Year value is missing"))?
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("Year is not a number"))? as i64
+            } else if month == 12 {
+                now.year() as i64
             } else {
-                now.year() - 1
+                (now.year() - 1) as i64
             };
-            let day = now.day();
+            let mut day = if let Some(day_option) = command
+                .data
+                .options
+                .iter()
+                .find(|opt| opt.name == DAY_OPTION)
+            {
+                day_option
+                    .value
+                    .clone()
+                    .ok_or_else(|| anyhow!("Day value is missing"))?
+                    .as_f64()
+                    .ok_or_else(|| anyhow!("Day is not a number"))? as i64
+            } else {
+                now.day() as i64
+            };
+            if !(1..=25).contains(&day) {
+                day = 1;
+            }
             let mut results = leaderboard_doc
                 .leaderboards
                 .get(&year.to_string())
@@ -368,7 +417,15 @@ impl CommandRunner for SpeedrunCommand {
                 })
                 .collect::<Vec<(&String, i64)>>();
             results.sort_by(|a, b| a.1.cmp(&b.1));
+            if results.is_empty() {
+                return Ok(Self::make_response(
+                    "There are not speedruns".to_string(),
+                    false,
+                    None,
+                ));
+            }
             let mut message_builder = MessageBuilder::new();
+            message_builder.push_bold_line(format!("Speedrun for AoC{} day {}", year, day));
             results.iter().for_each(|result| {
                 message_builder.push_line(format!(
                     "{}: {:#?}",
@@ -456,7 +513,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             .to_string();
         year.remove(year.len() - 1);
         year.remove(0);
-        let session_cookie = match command
+        let mut session_cookie = match command
             .data
             .options
             .iter()
@@ -477,7 +534,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
         let db_handle = retrieve_db_handle(ctx.data.clone()).await?;
         let collection =
             db_handle.collection::<PrivateLeaderboardDatabaseDoc>(PRIVATE_LEADERBOARDS_COLLECTION);
-        if collection
+        let leaderboard_doc = collection
             .find_one(
                 doc! {
                     "guild_id": guild_id.0 as i64,
@@ -485,9 +542,8 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
                 },
                 None,
             )
-            .await?
-            .is_none()
-        {
+            .await?;
+        if leaderboard_doc.is_none() {
             collection
                 .insert_one(
                     PrivateLeaderboardDatabaseDoc::new(
@@ -498,6 +554,8 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
                     None,
                 )
                 .await?;
+        } else if let Some(leaderboard_doc) = leaderboard_doc {
+            session_cookie = leaderboard_doc.session_cookie.cookie;
         }
         // WARN: Can be spammed and bypass minimum recommended 15 minutes between requests
         if let Some(session_cookie) = session_cookie {
