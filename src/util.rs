@@ -3,17 +3,17 @@ use std::sync::Arc;
 use anyhow::Result;
 use mongodb::Database;
 use serenity::{
-    async_trait,
-    builder::CreateApplicationCommand,
-    model::prelude::interaction::{
-        application_command::ApplicationCommandInteraction, InteractionResponseType,
+    all::{
+        CommandInteraction, CreateCommand, CreateInteractionResponse,
+        CreateInteractionResponseMessage,
     },
+    async_trait,
     prelude::{Context, RwLock, TypeMap},
 };
 
 use crate::{music::SaveHandler, CommandResponse, MongoDatabaseHandle, SaveHandlerHandle};
 
-pub(crate) async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Arc<Database>> {
+pub(crate) async fn retrieve_db_handle(data: Arc<RwLock<TypeMap>>) -> Result<Database> {
     let database_handle = {
         data.read()
             .await
@@ -33,30 +33,34 @@ pub(crate) async fn retrieve_save_handler(data: Arc<RwLock<TypeMap>>) -> Result<
         .clone())
 }
 
-pub(crate) async fn deferr_response(
-    ctx: &Context,
-    command: &ApplicationCommandInteraction,
-) -> Result<()> {
+pub(crate) async fn defer_response(ctx: &Context, command: &CommandInteraction) -> Result<()> {
     Ok(command
-        .create_interaction_response(&ctx.http, |response| {
-            response.kind(InteractionResponseType::DeferredChannelMessageWithSource)
-        })
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new()),
+        )
         .await?)
 }
 
 #[async_trait]
 pub(crate) trait CommandRunner {
-    async fn run(ctx: &Context, command: &ApplicationCommandInteraction)
-        -> Result<CommandResponse>;
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand;
-    fn deferr() -> bool {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse>;
+    fn register(&self) -> CreateCommand;
+    fn has_deferred_response(&self) -> bool {
         false
     }
+}
+
+pub(crate) trait MakeCommandResponse
+where
+    Self: CommandRunner,
+{
     fn make_response(
-        content: String,
+        &self,
+        content: impl Into<String>,
         ephemeral: bool,
-        response_type: Option<InteractionResponseType>,
+        response_type: Option<CreateInteractionResponse>,
     ) -> CommandResponse {
-        CommandResponse::new(content, ephemeral, response_type, Self::deferr())
+        CommandResponse::new(content.into(), ephemeral, self.has_deferred_response())
     }
 }

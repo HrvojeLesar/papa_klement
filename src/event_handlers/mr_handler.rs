@@ -1,20 +1,77 @@
+use anyhow::Result;
 use log::{error, warn};
 use serenity::{
     all::{
-        Context, EventHandler, GuildId, GuildMemberUpdateEvent, Interaction, Member, Message, Ready, User
+        CommandInteraction, Context, CreateInteractionResponse, CreateInteractionResponseFollowup,
+        CreateInteractionResponseMessage, EventHandler, GuildId, GuildMemberUpdateEvent,
+        Interaction, Member, Message, Ready, User,
     },
     async_trait,
 };
 
-use crate::{handle_application_command, register_slash_commands};
+use crate::{
+    commands::{create_commands::register_slash_commands, slash_commands::SlashCommands},
+    util::CommandRunner,
+    CommandResponse,
+};
 
 // Name credits to Fabian Benc
 pub(crate) struct MrHandler;
+
+impl MrHandler {
+    fn map_slash_commands_to_handler(command: CommandInteraction) -> Box<dyn CommandRunner> {
+        todo!()
+    }
+
+    async fn handle_application_command(
+        &self,
+        ctx: &Context,
+        command: CommandInteraction,
+    ) -> Result<()> {
+        let slash_command = command
+            .data
+            .name
+            .as_str()
+            .parse::<SlashCommands>()?
+            .get_command();
+
+        let response = match slash_command.run(ctx, &command).await {
+            Ok(c) => c,
+            Err(err) => {
+                error!("Error handling slash command: {:#?}", err);
+                CommandResponse::new(format!("Error: {:#?}", err), false, false)
+            }
+        };
+
+        if slash_command.has_deferred_response() {
+            command
+                .create_followup(
+                    &ctx.http,
+                    CreateInteractionResponseFollowup::new().content(response.content),
+                )
+                .await?;
+        } else {
+            let message = CreateInteractionResponseMessage::new()
+                .content(response.content)
+                .ephemeral(response.ephemeral);
+            let interaction_response = if response.is_deferred {
+                CreateInteractionResponse::Defer(message)
+            } else {
+                CreateInteractionResponse::Message(message)
+            };
+            command
+                .create_response(&ctx.http, interaction_response)
+                .await?;
+        }
+        Ok(())
+    }
+}
+
 #[async_trait]
 impl EventHandler for MrHandler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         if let Interaction::Command(command) = interaction {
-            match handle_application_command(&ctx, command).await {
+            match self.handle_application_command(&ctx, command).await {
                 Ok(_) => {}
                 Err(e) => error!("Application command error: {}", e),
             }
