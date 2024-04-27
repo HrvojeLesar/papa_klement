@@ -4,6 +4,7 @@ use log::info;
 use mongodb::{bson::doc, Collection};
 use serde::{Deserialize, Serialize};
 use serenity::{
+    all::{EditMember, UserId},
     futures::StreamExt,
     model::prelude::{Member, RoleId},
     prelude::Context,

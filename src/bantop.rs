@@ -3,9 +3,10 @@ use log::info;
 use mongodb::{bson::doc, Collection, Cursor};
 use serde::{Deserialize, Serialize};
 use serenity::{
-    async_trait, builder::CreateApplicationCommand,
-    model::prelude::interaction::application_command::ApplicationCommandInteraction,
-    prelude::Context, utils::MessageBuilder,
+    all::{CommandInteraction, CreateCommand},
+    async_trait,
+    prelude::Context,
+    utils::MessageBuilder,
 };
 
 use crate::{
@@ -70,11 +71,9 @@ impl BanTopCommand {
 
 #[async_trait]
 impl CommandRunner for BanTopCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::BanTop.as_str());
-        command
-            .name(SlashCommands::BanTop.as_str())
-            .description("Ban leaderboard")
+        CreateCommand::new(SlashCommands::BanTop.as_str()).description("Ban leaderboard")
     }
 
     async fn run(

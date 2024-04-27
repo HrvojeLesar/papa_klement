@@ -10,6 +10,7 @@ use mongodb::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serenity::{
+    all::{CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption},
     async_trait,
     builder::CreateApplicationCommand,
     futures::StreamExt,
@@ -24,6 +25,7 @@ use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
+    commands::slash_commands::SlashCommands,
     util::{retrieve_db_handle, CommandRunner},
     CommandResponse, SlashCommands,
 };
@@ -298,32 +300,38 @@ pub struct SpeedrunCommand;
 
 #[async_trait]
 impl CommandRunner for SpeedrunCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::Speedrun.as_str());
+        let command = CreateCommand::new(SlashCommands::Speedrun.as_str());
         command
-            .name(SlashCommands::Speedrun.as_str())
             .dm_permission(false)
-            .create_option(|opt| {
-                opt.required(false)
-                    .name(DAY_OPTION)
-                    .kind(CommandOptionType::Number)
-                    .description("Speedrun for selected day")
-                    .channel_types(&[ChannelType::Text])
-            })
-            .create_option(|opt| {
-                opt.required(false)
-                    .name(YEAR_OPTION)
-                    .kind(CommandOptionType::Number)
-                    .description("Speedrun for selected year")
-                    .channel_types(&[ChannelType::Text])
-            })
-            .create_option(|opt| {
-                opt.required(false)
-                    .name(PRIVATE_LEADERBOARD_ID_OPTION)
-                    .kind(CommandOptionType::Number)
-                    .description("Speedrun for selected leaderboard")
-                    .channel_types(&[ChannelType::Text])
-            })
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::Number,
+                    DAY_OPTION,
+                    "Speedrun for selected day",
+                )
+                .required(false)
+                .channel_types(vec![ChannelType::Text]),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::Number,
+                    YEAR_OPTION,
+                    "Speedrun for selected year",
+                )
+                .required(false)
+                .channel_types(vec![ChannelType::Text]),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::Integer,
+                    PRIVATE_LEADERBOARD_ID_OPTION,
+                    "Speedrun for selected leaderboard",
+                )
+                .required(false)
+                .channel_types(vec![ChannelType::Text]),
+            )
             .description("AoC Speedrun")
     }
 
@@ -448,35 +456,37 @@ pub struct AddPrivateLeaderboardCommand;
 
 #[async_trait]
 impl CommandRunner for AddPrivateLeaderboardCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!(
             "Command registered: {}",
             SlashCommands::AddPrivateLeaderboard.as_str()
         );
+        let command = CreateCommand::new(SlashCommands::AddPrivateLeaderboard.as_str());
         command
-            .name(SlashCommands::AddPrivateLeaderboard.as_str())
             .dm_permission(false)
-            .create_option(|opt| {
-                opt.required(true)
-                    .name(PRIVATE_LEADERBOARD_ID_OPTION)
-                    .kind(CommandOptionType::Number)
-                    .description("Private leaderboard ID")
-                    .channel_types(&[ChannelType::Text])
-            })
-            .create_option(|opt| {
-                opt.required(true)
-                    .name(YEAR_OPTION)
-                    .kind(CommandOptionType::String)
-                    .description("Year")
-                    .channel_types(&[ChannelType::Text])
-            })
-            .create_option(|opt| {
-                opt.required(false)
-                    .name(SESSION_COOKIE_OPTION)
-                    .kind(CommandOptionType::String)
-                    .description("Session cookie string")
-                    .channel_types(&[ChannelType::Text])
-            })
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::Integer,
+                    PRIVATE_LEADERBOARD_ID_OPTION,
+                    "Private leaderboard ID",
+                )
+                .required(true)
+                .channel_types(vec![ChannelType::Text]),
+            )
+            .add_option(
+                CreateCommandOption::new(CommandOptionType::String, YEAR_OPTION, "Year")
+                    .required(true)
+                    .channel_types(vec![ChannelType::Text]),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::String,
+                    SESSION_COOKIE_OPTION,
+                    "Session cookie string",
+                )
+                .required(true)
+                .channel_types(vec![ChannelType::Text]),
+            )
             .description("AoC add private leaderboard")
     }
 
@@ -588,28 +598,32 @@ pub struct SetSessionCookieCommand;
 
 #[async_trait]
 impl CommandRunner for SetSessionCookieCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!(
             "Command registered: {}",
             SlashCommands::SetSessionCookie.as_str()
         );
+        let command = CreateCommand::new(SlashCommands::SetSessionCookie.as_str());
         command
-            .name(SlashCommands::SetSessionCookie.as_str())
             .dm_permission(false)
-            .create_option(|opt| {
-                opt.required(true)
-                    .name(PRIVATE_LEADERBOARD_ID_OPTION)
-                    .kind(CommandOptionType::Number)
-                    .description("ID of a leaderboard to update the session cookie for")
-                    .channel_types(&[ChannelType::Text])
-            })
-            .create_option(|opt| {
-                opt.required(true)
-                    .name(SESSION_COOKIE_OPTION)
-                    .kind(CommandOptionType::String)
-                    .description("Session cookie string")
-                    .channel_types(&[ChannelType::Text])
-            })
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::Integer,
+                    PRIVATE_LEADERBOARD_ID_OPTION,
+                    "ID of a leaderboard to update the session cookie for",
+                )
+                .required(true)
+                .channel_types(vec![ChannelType::Text]),
+            )
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::String,
+                    SESSION_COOKIE_OPTION,
+                    "Session cookie string",
+                )
+                .required(true)
+                .channel_types(vec![ChannelType::Text]),
+            )
             .description("Adds a session cookie for fetching AoC private leaderboards")
     }
 
@@ -684,10 +698,10 @@ pub struct RollCommand;
 
 #[async_trait]
 impl CommandRunner for RollCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::Roll.as_str());
+        let command = CreateCommand::new(SlashCommands::Roll.as_str());
         command
-            .name(SlashCommands::Roll.as_str())
             .dm_permission(false)
             .description("Rolls a programming language")
     }

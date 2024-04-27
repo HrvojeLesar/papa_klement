@@ -13,13 +13,16 @@ use mongodb::{bson::doc, Collection, Database};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serenity::{
+    all::{CommandOptionType, CreateCommand, CreateCommandOption},
     async_trait,
     builder::CreateApplicationCommand,
     model::{
         prelude::{
             command::CommandOptionType,
-            interaction::application_command::ApplicationCommandInteraction,
-            interaction::InteractionResponseType, Activity, ChannelId, ChannelType, GuildId,
+            interaction::{
+                application_command::ApplicationCommandInteraction, InteractionResponseType,
+            },
+            Activity, ChannelId, ChannelType, GuildId,
         },
         user::OnlineStatus,
     },
@@ -34,11 +37,12 @@ use songbird::{
 use tokio::{process::Command, task::JoinHandle};
 
 use crate::{
-    util::{deferr_response, retrieve_save_handler, CommandRunner},
+    commands::slash_commands::SlashCommands,
+    util::{defer_response, retrieve_save_handler, CommandRunner},
     CommandResponse, SlashCommands,
 };
 
-const QUERY: &str = "query";
+const QUERY: &str = "search";
 static HOME: Lazy<String> =
     Lazy::new(|| env::var("HOME").expect("HOME environment variable is required!"));
 
@@ -472,18 +476,20 @@ impl PlayCommand {
 
 #[async_trait]
 impl CommandRunner for PlayCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::Play.as_str());
+        let command = CreateCommand::new(SlashCommands::Play.as_str());
         command
-            .name(SlashCommands::Play.as_str())
             .dm_permission(false)
-            .create_option(|opt| {
-                opt.required(true)
-                    .name(QUERY)
-                    .kind(CommandOptionType::String)
-                    .description("Search query or youtube URL")
-                    .channel_types(&[ChannelType::Text])
-            })
+            .add_option(
+                CreateCommandOption::new(
+                    CommandOptionType::String,
+                    QUERY,
+                    "Search youtube or use direct URL",
+                )
+                .required(true)
+                .channel_types(vec![ChannelType::Text]),
+            )
             .description("Plays a track from youtube")
     }
 
@@ -491,7 +497,7 @@ impl CommandRunner for PlayCommand {
         ctx: &Context,
         command: &ApplicationCommandInteraction,
     ) -> Result<CommandResponse> {
-        deferr_response(ctx, command).await?;
+        defer_response(ctx, command).await?;
         let query = Self::get_query(command)?;
 
         let (early_response, handler) = Self::handle_connection(ctx, command).await?;
@@ -592,7 +598,7 @@ impl CommandRunner for PlayCommand {
         }
     }
 
-    fn deferr() -> bool {
+    fn has_deferred_response() -> bool {
         true
     }
 }
@@ -601,10 +607,10 @@ pub(crate) struct SkipCommand;
 
 #[async_trait]
 impl CommandRunner for SkipCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::Skip.as_str());
+        let command = CreateCommand::new(SlashCommands::Skip.as_str());
         command
-            .name(SlashCommands::Skip.as_str())
             .dm_permission(false)
             .description("Skip current track")
     }
@@ -668,10 +674,10 @@ pub(crate) struct StopCommand;
 
 #[async_trait]
 impl CommandRunner for StopCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::Stop.as_str());
+        let command = CreateCommand::new(SlashCommands::Stop.as_str());
         command
-            .name(SlashCommands::Stop.as_str())
             .dm_permission(false)
             .description("Stops the bot playing tracks and disconnects it")
     }
@@ -732,10 +738,10 @@ impl Display for MinutesDisplay {
 
 #[async_trait]
 impl CommandRunner for QueueCommand {
-    fn register(command: &mut CreateApplicationCommand) -> &mut CreateApplicationCommand {
+    fn register(&self) -> CreateCommand {
         info!("Command registered: {}", SlashCommands::Queue.as_str());
+        let command = CreateCommand::new(SlashCommands::Queue.as_str());
         command
-            .name(SlashCommands::Queue.as_str())
             .dm_permission(false)
             .description("Fetches current track queue.")
     }
