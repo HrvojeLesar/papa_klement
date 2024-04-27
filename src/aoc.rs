@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
 use chrono::{Datelike, Utc};
 use log::{error, info, warn};
@@ -12,12 +12,8 @@ use serde::{Deserialize, Serialize};
 use serenity::{
     all::{CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption},
     async_trait,
-    builder::CreateApplicationCommand,
     futures::StreamExt,
-    model::prelude::{
-        command::CommandOptionType,
-        interaction::application_command::ApplicationCommandInteraction, ChannelType, GuildId,
-    },
+    model::prelude::{ChannelType, GuildId},
     prelude::Context,
     utils::MessageBuilder,
 };
@@ -26,8 +22,8 @@ use tokio_stream::wrappers::IntervalStream;
 
 use crate::{
     commands::slash_commands::SlashCommands,
-    util::{retrieve_db_handle, CommandRunner},
-    CommandResponse, SlashCommands,
+    util::{retrieve_db_handle, CommandRunner, MakeCommandResponse},
+    CommandResponse,
 };
 use anyhow::{anyhow, Result};
 
@@ -149,7 +145,7 @@ pub struct PrivateLeaderboardDatabaseDoc {
 impl PrivateLeaderboardDatabaseDoc {
     fn new(guild_id: GuildId, private_leaderboard_id: i64, session_cookie: Session) -> Self {
         Self {
-            guild_id: guild_id.0 as i64,
+            guild_id: guild_id.get() as i64,
             private_leaderboard_id,
             session_cookie,
             leaderboards: HashMap::new(),
@@ -162,7 +158,7 @@ fn generate_current_timestamp() -> i64 {
 }
 
 async fn fetch_leaderboard(
-    year: &String,
+    year: &str,
     private_leaderboard_id: i64,
     session_cookie: &String,
     client: reqwest::Client,
@@ -245,7 +241,7 @@ async fn fetch_leaderboards(
         .await;
 }
 
-pub async fn start_aoc_auto_fetch(db_handle: Arc<Database>) {
+pub async fn start_aoc_auto_fetch(db_handle: Database) {
     let interval = interval(Duration::from_secs(INTERVAL_TIME as u64 + 5));
     let db_handle = db_handle.clone();
     IntervalStream::new(interval)
@@ -297,6 +293,7 @@ pub async fn start_aoc_auto_fetch(db_handle: Arc<Database>) {
 }
 
 pub struct SpeedrunCommand;
+impl MakeCommandResponse for SpeedrunCommand {}
 
 #[async_trait]
 impl CommandRunner for SpeedrunCommand {
@@ -307,7 +304,7 @@ impl CommandRunner for SpeedrunCommand {
             .dm_permission(false)
             .add_option(
                 CreateCommandOption::new(
-                    CommandOptionType::Number,
+                    CommandOptionType::Integer,
                     DAY_OPTION,
                     "Speedrun for selected day",
                 )
@@ -316,7 +313,7 @@ impl CommandRunner for SpeedrunCommand {
             )
             .add_option(
                 CreateCommandOption::new(
-                    CommandOptionType::Number,
+                    CommandOptionType::Integer,
                     YEAR_OPTION,
                     "Speedrun for selected year",
                 )
@@ -335,11 +332,7 @@ impl CommandRunner for SpeedrunCommand {
             .description("AoC Speedrun")
     }
 
-    // TODO: Handle options
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         let guild_id = command
             .guild_id
             .ok_or_else(|| anyhow!("Command must be run in guild"))?;
@@ -354,20 +347,17 @@ impl CommandRunner for SpeedrunCommand {
         {
             let leaderboard_id = leaderboard_id
                 .value
-                .clone()
-                .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?
-                .as_f64()
-                .ok_or_else(|| anyhow!("Leaderboard ID is not a number"))?
-                as i64;
+                .as_i64()
+                .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?;
             collection.find_one(
                 doc! {
-                    "guild_id": guild_id.0 as i64,
+                    "guild_id": guild_id.get() as i64,
                     "private_leaderboard_id": leaderboard_id,
                 },
                 None,
             )
         } else {
-            collection.find_one(doc! {"guild_id": guild_id.0 as i64}, None)
+            collection.find_one(doc! {"guild_id": guild_id.get() as i64}, None)
         };
         if let Some(leaderboard_doc) = db_query.await? {
             let now = Utc::now();
@@ -380,10 +370,8 @@ impl CommandRunner for SpeedrunCommand {
             {
                 year_option
                     .value
-                    .clone()
-                    .ok_or_else(|| anyhow!("Year value is missing"))?
-                    .as_f64()
-                    .ok_or_else(|| anyhow!("Year is not a number"))? as i64
+                    .as_i64()
+                    .ok_or_else(|| anyhow!("Year is missing"))?
             } else if month == 12 {
                 now.year() as i64
             } else {
@@ -397,10 +385,8 @@ impl CommandRunner for SpeedrunCommand {
             {
                 day_option
                     .value
-                    .clone()
+                    .as_i64()
                     .ok_or_else(|| anyhow!("Day value is missing"))?
-                    .as_f64()
-                    .ok_or_else(|| anyhow!("Day is not a number"))? as i64
             } else {
                 now.day() as i64
             };
@@ -426,11 +412,7 @@ impl CommandRunner for SpeedrunCommand {
                 .collect::<Vec<(&String, i64)>>();
             results.sort_by(|a, b| a.1.cmp(&b.1));
             if results.is_empty() {
-                return Ok(Self::make_response(
-                    "There are no speedruns".to_string(),
-                    false,
-                    None,
-                ));
+                return Ok(self.make_response("There are no speedruns", false));
             }
             let mut message_builder = MessageBuilder::new();
             message_builder.push_bold_line(format!("Speedrun for AoC{} day {}", year, day));
@@ -441,18 +423,15 @@ impl CommandRunner for SpeedrunCommand {
                     Duration::from_secs(result.1 as u64)
                 ));
             });
-            Ok(Self::make_response(message_builder.build(), false, None))
+            Ok(self.make_response(message_builder.build(), false))
         } else {
-            Ok(Self::make_response(
-                "There are no speedruns".to_string(),
-                false,
-                None,
-            ))
+            Ok(self.make_response("There are no speedruns", false))
         }
     }
 }
 
 pub struct AddPrivateLeaderboardCommand;
+impl MakeCommandResponse for AddPrivateLeaderboardCommand {}
 
 #[async_trait]
 impl CommandRunner for AddPrivateLeaderboardCommand {
@@ -474,7 +453,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
                 .channel_types(vec![ChannelType::Text]),
             )
             .add_option(
-                CreateCommandOption::new(CommandOptionType::String, YEAR_OPTION, "Year")
+                CreateCommandOption::new(CommandOptionType::Integer, YEAR_OPTION, "Year")
                     .required(true)
                     .channel_types(vec![ChannelType::Text]),
             )
@@ -490,10 +469,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             .description("AoC add private leaderboard")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         let guild_id = command
             .guild_id
             .ok_or_else(|| anyhow!("Command must be run in guild"))?;
@@ -506,11 +482,8 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             .find(|opt| opt.name == PRIVATE_LEADERBOARD_ID_OPTION)
             .ok_or_else(|| anyhow!("Leaderboard ID is required"))?
             .value
-            .clone()
-            .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?
-            .as_f64()
-            .ok_or_else(|| anyhow!("Leaderboard ID is not a number"))?
-            as i64;
+            .as_i64()
+            .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?;
         let mut year = command
             .data
             .options
@@ -518,11 +491,8 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             .find(|opt| opt.name == YEAR_OPTION)
             .ok_or_else(|| anyhow!("Year is required"))?
             .value
-            .as_ref()
-            .ok_or_else(|| anyhow!("Year value is missing"))?
-            .to_string();
-        year.remove(year.len() - 1);
-        year.remove(0);
+            .as_i64()
+            .ok_or_else(|| anyhow!("Year value is missing"))?;
         let mut session_cookie = match command
             .data
             .options
@@ -532,11 +502,12 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             Some(sc) => {
                 let mut cookie = sc
                     .value
-                    .clone()
+                    .as_str()
                     .ok_or_else(|| anyhow!("Session cookie is missing"))?
                     .to_string();
-                cookie.remove(cookie.len() - 1);
-                cookie.remove(0);
+                // TODO: Check why is this here
+                // cookie.remove(cookie.len() - 1);
+                // cookie.remove(0);
                 Some(cookie)
             }
             None => None,
@@ -547,7 +518,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
         let leaderboard_doc = collection
             .find_one(
                 doc! {
-                    "guild_id": guild_id.0 as i64,
+                    "guild_id": guild_id.get() as i64,
                     "private_leaderboard_id": leaderboard_id,
                 },
                 None,
@@ -571,12 +542,13 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
         if let Some(session_cookie) = session_cookie {
             let client = reqwest::Client::new();
             let response =
-                fetch_leaderboard(&year, leaderboard_id, &session_cookie, client).await?;
+                fetch_leaderboard(&year.to_string(), leaderboard_id, &session_cookie, client)
+                    .await?;
             let response = to_bson(&response)?;
             collection
                 .find_one_and_update(
                     doc! {
-                        "guild_id": guild_id.0 as i64,
+                        "guild_id": guild_id.get() as i64,
                         "private_leaderboard_id": leaderboard_id,
                     },
                     doc! {
@@ -586,15 +558,12 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
                 )
                 .await?;
         }
-        Ok(Self::make_response(
-            "Leaderboard has been added".to_string(),
-            false,
-            None,
-        ))
+        Ok(self.make_response("Leaderboard has been added", false))
     }
 }
 
 pub struct SetSessionCookieCommand;
+impl MakeCommandResponse for SetSessionCookieCommand {}
 
 #[async_trait]
 impl CommandRunner for SetSessionCookieCommand {
@@ -627,10 +596,7 @@ impl CommandRunner for SetSessionCookieCommand {
             .description("Adds a session cookie for fetching AoC private leaderboards")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         let guild_id = command
             .guild_id
             .ok_or_else(|| anyhow!("Command must be run in guild"))?;
@@ -641,11 +607,8 @@ impl CommandRunner for SetSessionCookieCommand {
             .find(|opt| opt.name == PRIVATE_LEADERBOARD_ID_OPTION)
             .ok_or_else(|| anyhow!("Leaderboard ID is required"))?
             .value
-            .clone()
-            .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?
-            .as_f64()
-            .ok_or_else(|| anyhow!("Leaderboard ID is not a number"))?
-            as i64;
+            .as_i64()
+            .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?;
         let mut session_cookie = command
             .data
             .options
@@ -653,7 +616,7 @@ impl CommandRunner for SetSessionCookieCommand {
             .find(|opt| opt.name == SESSION_COOKIE_OPTION)
             .ok_or_else(|| anyhow!("Session cookie is required"))?
             .value
-            .as_ref()
+            .as_str()
             .ok_or_else(|| anyhow!("Session cookie value is missing"))?
             .to_string();
         session_cookie.remove(session_cookie.len() - 1);
@@ -665,7 +628,7 @@ impl CommandRunner for SetSessionCookieCommand {
         if collection
             .find_one_and_update(
                 doc! {
-                    "guild_id": guild_id.0 as i64,
+                    "guild_id": guild_id.get() as i64,
                     "private_leaderboard_id": leaderboard_id
                 },
                 doc! {
@@ -679,22 +642,15 @@ impl CommandRunner for SetSessionCookieCommand {
             .await?
             .is_some()
         {
-            Ok(Self::make_response(
-                "Successfully set session".to_string(),
-                false,
-                None,
-            ))
+            Ok(self.make_response("Successfully set session".to_string(), false))
         } else {
-            Ok(Self::make_response(
-                "Leaderboard not found".to_string(),
-                false,
-                None,
-            ))
+            Ok(self.make_response("Leaderboard not found".to_string(), false))
         }
     }
 }
 
 pub struct RollCommand;
+impl MakeCommandResponse for RollCommand {}
 
 #[async_trait]
 impl CommandRunner for RollCommand {
@@ -706,10 +662,7 @@ impl CommandRunner for RollCommand {
             .description("Rolls a programming language")
     }
 
-    async fn run(
-        _ctx: &Context,
-        _command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, _ctx: &Context, _command: &CommandInteraction) -> Result<CommandResponse> {
         let weights_pool = lang_weights_pool();
         let maximum_value = maximum_weight_value();
 
@@ -719,21 +672,16 @@ impl CommandRunner for RollCommand {
             .enumerate()
             .find(|(i, _)| weights_pool[*i] >= random_number);
         if let Some(lang) = selected_lang {
-            Ok(Self::make_response(
+            Ok(self.make_response(
                 format!(
                     "{} ({:.2}%)",
                     lang.1.lang,
                     (lang.1.weight as f64 / maximum_value as f64) * 100f64
                 ),
                 false,
-                None,
             ))
         } else {
-            Ok(Self::make_response(
-                "Dober kod pajdo.".to_string(),
-                false,
-                None,
-            ))
+            Ok(self.make_response("Dober kod pajdo.".to_string(), false))
         }
     }
 }
