@@ -10,8 +10,9 @@ use serenity::{
 };
 
 use crate::{
-    util::{retrieve_db_handle, CommandRunner},
-    CommandResponse, SlashCommands, UNDERSCOREBANS,
+    commands::slash_commands::SlashCommands,
+    util::{retrieve_db_handle, CommandRunner, MakeCommandResponse},
+    CommandResponse, UNDERSCOREBANS,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ struct BanCountRecord {
 }
 
 pub(crate) struct BanTopCommand;
+impl MakeCommandResponse for BanTopCommand {}
 
 impl BanTopCommand {
     async fn get_users(
@@ -76,18 +78,15 @@ impl CommandRunner for BanTopCommand {
         CreateCommand::new(SlashCommands::BanTop.as_str()).description("Ban leaderboard")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         info!("BanTop command called");
         let guild_id = command
             .guild_id
             .ok_or_else(|| anyhow::anyhow!("Command is not called from a guild!"))?;
         let db_handle = retrieve_db_handle(ctx.data.clone()).await?;
-        let collection = db_handle
-            .collection::<BanCountRecord>(&format!("{}{UNDERSCOREBANS}", guild_id.as_u64()));
-        let guild_id_string = guild_id.as_u64().to_string();
+        let collection =
+            db_handle.collection::<BanCountRecord>(&format!("{}{UNDERSCOREBANS}", guild_id.get()));
+        let guild_id_string = guild_id.get().to_string();
         let most_bans_issued = Self::get_users(&collection, "$banned_by", &guild_id_string).await?;
         let most_banned_users =
             Self::get_users(&collection, "$banned_user", &guild_id_string).await?;
@@ -117,6 +116,6 @@ impl CommandRunner for BanTopCommand {
                     user.count
                 ));
         });
-        Ok(Self::make_response(builder.build(), false, None))
+        Ok(self.make_response(builder.build(), false))
     }
 }

@@ -55,12 +55,7 @@ pub(crate) trait MakeCommandResponse
 where
     Self: CommandRunner,
 {
-    fn make_response(
-        &self,
-        content: impl Into<String>,
-        ephemeral: bool,
-        response_type: Option<CreateInteractionResponse>,
-    ) -> CommandResponse {
+    fn make_response(&self, content: impl Into<String>, ephemeral: bool) -> CommandResponse {
         CommandResponse::new(content.into(), ephemeral, self.has_deferred_response())
     }
 }

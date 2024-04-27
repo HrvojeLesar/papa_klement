@@ -1,4 +1,4 @@
-use crate::{util::retrieve_db_handle, Handler, UNDERSCOREBANS};
+use crate::{event_handlers::mr_handler::MrHandler, util::retrieve_db_handle, UNDERSCOREBANS};
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -6,8 +6,10 @@ use log::{error, info};
 use mongodb::{bson::doc, IndexModel};
 use serde::{Deserialize, Serialize};
 use serenity::{
+    all::{CreateInvite, CreateMessage},
     model::{
-        prelude::{Action, GuildId, MemberAction},
+        guild::audit_log::Action,
+        prelude::{GuildId, MemberAction},
         user::User,
     },
     prelude::Context,
@@ -24,12 +26,12 @@ pub(crate) struct BanRecord {
     pub(crate) timestamp: DateTime<Utc>,
 }
 
-impl Handler {
+impl MrHandler {
     async fn record_ban(&self, ctx: &Context, guild: &GuildId, banned_user: &User) -> Result<()> {
         let ban_logs = guild
             .audit_logs(
                 &ctx.http,
-                Some(Action::Member(MemberAction::BanAdd).num()),
+                Some(Action::Member(MemberAction::BanAdd)),
                 None,
                 None,
                 None,
@@ -37,15 +39,20 @@ impl Handler {
             .await?;
         let latest_ban = ban_logs.entries.iter().find(|log| {
             if let Some(target) = log.target_id {
-                if &target == banned_user.id.as_u64() {
+                if target.get() == banned_user.id.get() {
                     return true;
                 }
             }
             false
         });
         if let Some(latest_ban) = latest_ban {
-            let banned_by = BanRecordUser(*latest_ban.user_id.as_u64() as i64);
-            let banned_user = BanRecordUser(latest_ban.target_id.unwrap_or(0) as i64);
+            let target_id = if let Some(generic_id) = latest_ban.target_id {
+                generic_id.get()
+            } else {
+                0
+            };
+            let banned_by = BanRecordUser(latest_ban.user_id.get() as i64);
+            let banned_user = BanRecordUser(target_id as i64);
             let record = BanRecord {
                 banned_by,
                 banned_user,
@@ -54,7 +61,7 @@ impl Handler {
             };
             let bans_collection = retrieve_db_handle(ctx.data.clone())
                 .await?
-                .collection::<BanRecord>(&format!("{}{UNDERSCOREBANS}", guild.as_u64()));
+                .collection::<BanRecord>(&format!("{}{UNDERSCOREBANS}", guild.get()));
             bans_collection
                 .create_indexes(
                     [
@@ -86,7 +93,7 @@ impl Handler {
             if channel.is_text_based() {
                 invite = Some(
                     channel_id
-                        .create_invite(&ctx.http, |f| f.max_uses(10))
+                        .create_invite(&ctx.http, CreateInvite::new().max_uses(10))
                         .await?,
                 );
                 break;
@@ -94,7 +101,9 @@ impl Handler {
         }
         match invite {
             Some(inv) => {
-                banned_user.dm(&ctx.http, |f| f.content(inv.url())).await?;
+                banned_user
+                    .dm(&ctx.http, CreateMessage::new().content(inv.url()))
+                    .await?;
             }
             None => return Err(anyhow::anyhow!("Failed to create invite!")),
         }

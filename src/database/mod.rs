@@ -1,8 +1,14 @@
 use std::env;
 
 use mongodb::{options::ClientOptions, Database};
+use songbird::typemap::TypeMapKey;
 
 pub(crate) const MONGODB_NAME: &str = "papa_klement";
+
+pub(crate) struct MongoDatabaseHandle;
+impl TypeMapKey for MongoDatabaseHandle {
+    type Value = Database;
+}
 
 pub(crate) async fn init_database() -> Database {
     let mut mongo_client_options =
