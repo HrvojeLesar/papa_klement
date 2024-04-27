@@ -10,7 +10,6 @@ anyhow = "1.0.68"
 chrono = { version = "0.4.23", features = ["clock", "serde"] }
 dotenvy = "0.15.6"
 log = "0.4.17"
-moka = "0.9.6"
 mongodb = "2.3.1"
 once_cell = "1.17.0"
 pretty_env_logger = "0.4.0"
@@ -18,7 +17,7 @@ rand = "0.8.5"
 reqwest = "0.11.14"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"
-serenity = { version = "0.11.5", default-features = false, features = [
+serenity = { version = "0.12.1", default-features = false, features = [
     "client",
     "gateway",
     "cache",
@@ -27,6 +26,6 @@ serenity = { version = "0.11.5", default-features = false, features = [
     "rustls_backend",
 ] }
 sha2 = "0.10.6"
-songbird = { version = "0.3.0", features = ["yt-dlp", "builtin-queue"] }
+songbird = { version = "0.4.1", features = ["builtin-queue"] }
 tokio = { version = "1.23.0", features = ["full"] }
 tokio-stream = "0.1.11"

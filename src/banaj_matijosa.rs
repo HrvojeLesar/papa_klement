@@ -6,7 +6,10 @@ use mongodb::{bson::doc, options::FindOneAndUpdateOptions};
 use serde::{Deserialize, Serialize};
 use serenity::{futures::StreamExt, model::prelude::Message, prelude::Context};
 
-use crate::{unban::BanRecordUser, util::retrieve_db_handle, Handler, MattBanCooldown};
+use crate::{
+    event_handlers::mr_handler::MrHandler, unban::BanRecordUser, util::retrieve_db_handle,
+    MattBanCooldown,
+};
 
 const MATTID: u64 = 252114544485335051;
 const SERVER: u64 = 173766075484340234;
@@ -49,7 +52,7 @@ impl MattBan {
     }
 }
 
-impl Handler {
+impl MrHandler {
     pub(crate) async fn banaj_matijosa(&self, ctx: &Context, message: &Message) -> Result<()> {
         if message
             .guild_id
@@ -74,6 +77,7 @@ impl Handler {
             let handle = retrieve_db_handle(ctx.data.clone()).await?;
             let author_id = *message.author.id.as_u64();
 
+            // TODO: do some locking so this if cannot run in parallel
             if time_now - cooldown > last_ban_timestamp {
                 if let Some(guild) = ctx
                     .cache

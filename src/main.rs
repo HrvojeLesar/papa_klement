@@ -2,15 +2,22 @@ use anyhow::Result;
 use aoc::{start_aoc_auto_fetch, RollCommand};
 use banaj_matijosa::{BAN_COOLDOWN_TIME, MATT_BAN_COLLECTION};
 use bantop::BanTopCommand;
+use client::init_serenity_client;
+use database::init_database;
+use event_handlers::mr_handler::MrHandler;
 use music::{PlayCommand, QueuedDisconnect, SaveHandler, SkipCommand, StopCommand};
 use serde::{Deserialize, Serialize};
 use songbird::SerenityInit;
 use std::{env, str::FromStr, sync::Arc};
 use util::CommandRunner;
 
-use log::{error, info};
+use log::{error, info, warn};
 use mongodb::{bson::doc, options::ClientOptions, Database};
 use serenity::{
+    all::{
+        CommandInteraction, CreateInteractionResponse, CreateInteractionResponseMessage,
+        GuildMemberUpdateEvent,
+    },
     async_trait,
     model::{
         prelude::{
@@ -34,13 +41,16 @@ use crate::{
 mod aoc;
 mod banaj_matijosa;
 mod bantop;
+mod client;
+mod commands;
+mod database;
+mod event_handlers;
 mod music;
 mod roles;
 mod unban;
 mod util;
 
 pub const UNDERSCOREBANS: &str = "_bans";
-const MONGODB_NAME: &str = "papa_klement";
 
 pub(crate) enum SlashCommands {
     BanTop,
@@ -91,12 +101,7 @@ impl FromStr for SlashCommands {
 
 pub(crate) struct MongoDatabaseHandle;
 impl TypeMapKey for MongoDatabaseHandle {
-    type Value = Arc<Database>;
-}
-
-pub(crate) struct MongoClientHandle;
-impl TypeMapKey for MongoClientHandle {
-    type Value = Arc<mongodb::Client>;
+    type Value = Database;
 }
 
 #[derive(Serialize, Deserialize)]
@@ -118,7 +123,7 @@ impl TypeMapKey for SaveHandlerHandle {
 pub(crate) struct CommandResponse {
     content: String,
     ephemeral: bool,
-    response_type: InteractionResponseType,
+    response_type: CreateInteractionResponse,
     has_deferred_response: bool,
 }
 
@@ -126,14 +131,15 @@ impl CommandResponse {
     pub(crate) fn new(
         content: String,
         ephemeral: bool,
-        response_type: Option<InteractionResponseType>,
+        response_type: Option<CreateInteractionResponse>,
         has_deferred_response: bool,
     ) -> Self {
         Self {
             content,
             ephemeral,
-            response_type: response_type
-                .unwrap_or(InteractionResponseType::ChannelMessageWithSource),
+            response_type: response_type.unwrap_or(CreateInteractionResponse::Defer(
+                CreateInteractionResponseMessage::new(),
+            )),
             has_deferred_response,
         }
     }
@@ -143,32 +149,14 @@ async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Result<()> {
     for guild in ready.guilds.iter() {
         guild
             .id
-            .set_application_commands(&ctx.http, |commands| {
-                commands
-                    .create_application_command(|command| BanTopCommand::register(command))
-                    .create_application_command(|command| PlayCommand::register(command))
-                    .create_application_command(|command| SkipCommand::register(command))
-                    .create_application_command(|command| StopCommand::register(command))
-                    .create_application_command(|command| QueueCommand::register(command))
-                    .create_application_command(|command| SpeedrunCommand::register(command))
-                    .create_application_command(|command| {
-                        AddPrivateLeaderboardCommand::register(command)
-                    })
-                    .create_application_command(|command| {
-                        SetSessionCookieCommand::register(command)
-                    })
-                    .create_application_command(|command| RollCommand::register(command))
-            })
+            .set_commands(&ctx.http, commands::create_commands::registered_commands())
             .await?;
     }
     info!("Successfully registered slash commands");
     Ok(())
 }
 
-async fn handle_application_command(
-    ctx: &Context,
-    command: ApplicationCommandInteraction,
-) -> Result<()> {
+async fn handle_application_command(ctx: &Context, command: CommandInteraction) -> Result<()> {
     let command_response = match command.data.name.as_str().parse()? {
         SlashCommands::BanTop => BanTopCommand::run(ctx, &command).await,
         SlashCommands::Play => PlayCommand::run(ctx, &command).await,
@@ -194,15 +182,18 @@ async fn handle_application_command(
 
     if !command_response.has_deferred_response {
         command
-            .create_interaction_response(&ctx.http, |response| {
-                response
-                    .kind(command_response.response_type)
-                    .interaction_response_data(|message| {
-                        message
-                            .ephemeral(command_response.ephemeral)
-                            .content(command_response.content)
-                    })
-            })
+            .create_response(
+                &ctx.http,
+                command_response.response_type | response | {
+                    response
+                        .kind(command_response.response_type)
+                        .interaction_response_data(|message| {
+                            message
+                                .ephemeral(command_response.ephemeral)
+                                .content(command_response.content)
+                        })
+                },
+            )
             .await?;
     } else {
         command
@@ -216,67 +207,6 @@ async fn handle_application_command(
     Ok(())
 }
 
-struct Handler;
-#[async_trait]
-impl EventHandler for Handler {
-    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        if let Interaction::ApplicationCommand(command) = interaction {
-            match handle_application_command(&ctx, command).await {
-                Ok(_) => {}
-                Err(e) => error!("Application command error: {}", e),
-            }
-        }
-    }
-
-    async fn guild_member_update(&self, ctx: Context, _old: Option<Member>, new: Member) {
-        match self.save_member_roles_on_update(&ctx, &new).await {
-            Ok(_) => (),
-            Err(e) => error!("Guild member update error: {}", e),
-        };
-    }
-    async fn guild_member_addition(&self, ctx: Context, mut new: Member) {
-        match self.grant_roles_and_nickname(&ctx, &mut new).await {
-            Ok(_) => (),
-            Err(e) => error!("Guild member addition error: {}", e),
-        };
-    }
-    async fn guild_ban_addition(&self, ctx: Context, guild_id: GuildId, banned_user: User) {
-        match self.unban(&ctx, &guild_id, &banned_user).await {
-            Ok(_) => (),
-            Err(e) => error!("Guild ban addition error: {}", e),
-        };
-    }
-
-    async fn cache_ready(&self, ctx: Context, _guilds: Vec<GuildId>) {
-        log::info!("Cache ready");
-        match self.save_roles_on_startup(&ctx).await {
-            Ok(_) => (),
-            Err(e) => error!("Save roles on startup error: {}", e),
-        };
-    }
-
-    async fn message(&self, ctx: Context, message: Message) {
-        match self.banaj_matijosa(&ctx, &message).await {
-            Ok(_) => (),
-            Err(e) => error!("Banaj Matijoša error: {}", e),
-        };
-    }
-
-    async fn ready(&self, ctx: Context, ready: Ready) {
-        log::info!("Ready");
-        println!("Bot started");
-        match register_slash_commands(&ctx, &ready).await {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Ready error: {:#?}", e);
-            }
-        };
-    }
-}
-
-// (songbird::remove...)
-// TODO: all AoC stuff
-
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().expect(".env file not found");
@@ -285,53 +215,16 @@ async fn main() -> Result<()> {
         pretty_env_logger::env_logger::Env::new().default_filter_or("warn"),
     );
 
-    let mut mongo_client_options =
-        ClientOptions::parse(env::var("MONGO_URL").expect("MONGO_URL is required!"))
-            .await
-            .unwrap();
-    mongo_client_options.app_name = Some("Papa_Klement".to_string());
-    let mongo_client = mongodb::Client::with_options(mongo_client_options).unwrap();
+    let mongo_database = init_database().await;
 
-    let mongo_database = mongo_client.database(MONGODB_NAME);
-
-    let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN env variable is not defined!");
-    let gateway = GatewayIntents::GUILD_MEMBERS
-        | GatewayIntents::MESSAGE_CONTENT
-        | GatewayIntents::GUILDS
-        | GatewayIntents::GUILD_BANS
-        | GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::DIRECT_MESSAGES
-        | GatewayIntents::non_privileged();
-    let mut client = Client::builder(token, gateway)
-        .event_handler(Handler)
-        .register_songbird()
-        .await
-        .expect("Error creating client");
+    let client = init_serenity_client(vec![MrHandler]).await;
 
     {
-        let last_ban = {
-            let collection = mongo_database.collection::<MattBanCooldown>(MATT_BAN_COLLECTION);
-            collection.find_one(doc! {"_id": "COOLDOWN"}, None).await?
-        };
         let mut lock = client.data.write().await;
-        let db_handle = Arc::new(mongo_database);
-        lock.insert::<MongoDatabaseHandle>(db_handle.clone());
-        lock.insert::<MongoClientHandle>(Arc::new(mongo_client));
-        match last_ban {
-            Some(lb) => {
-                lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(lb)));
-            }
-            None => {
-                lock.insert::<MattBanCooldown>(Arc::new(RwLock::new(MattBanCooldown {
-                    cooldown: BAN_COOLDOWN_TIME,
-                    last_ban_timestamp: 0,
-                })));
-            }
-        }
-        lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(db_handle.clone())));
+        lock.insert::<MongoDatabaseHandle>(mongo_database.clone());
         lock.insert::<QueuedDisconnect>(Arc::new(RwLock::new(QueuedDisconnect::new())));
 
-        tokio::spawn(start_aoc_auto_fetch(db_handle));
+        tokio::spawn(start_aoc_auto_fetch(mongo_database));
     }
 
     if let Err(err) = client.start().await {
