@@ -4,11 +4,10 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use mongodb::{bson::doc, options::FindOneAndUpdateOptions};
 use serde::{Deserialize, Serialize};
-use serenity::{futures::StreamExt, model::prelude::Message, prelude::Context};
+use serenity::{all::CreateMessage, futures::StreamExt, model::prelude::Message, prelude::Context};
 
 use crate::{
-    event_handlers::mr_handler::MrHandler, unban::BanRecordUser, util::retrieve_db_handle,
-    MattBanCooldown,
+    database::MongoDatabaseHandle, event_handlers::mr_handler::MrHandler, unban::BanRecordUser,
 };
 
 const MATTID: u64 = 252114544485335051;
@@ -35,6 +34,12 @@ const ALLOWEDMEMBERS: &[u64] = &[
 pub const MATT_BAN_COLLECTION: &str = "matt_ban";
 pub const BAN_COOLDOWN_TIME: i64 = 3600;
 
+#[derive(Serialize, Deserialize)]
+pub(crate) struct MattBanCooldown {
+    pub(crate) cooldown: i64,
+    pub(crate) last_ban_timestamp: i64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct MattBan {
     banned_by: BanRecordUser,
@@ -58,51 +63,52 @@ impl MrHandler {
             .guild_id
             .ok_or_else(|| anyhow::anyhow!("Message is missing guild id."))?
             == SERVER
-            && ALLOWEDMEMBERS.contains(message.author.id.as_u64())
+            && ALLOWEDMEMBERS.contains(&message.author.id.get())
             && message.content.contains(EMOJIID)
         {
+            let author_id = message.author.id.get();
+            let handle = ctx
+                .data
+                .read()
+                .await
+                .get::<MongoDatabaseHandle>()
+                .ok_or_else(|| anyhow::anyhow!("Failed to retrieve MongoDatabaseHandle from data"))?
+                .clone();
             let time_now = Utc::now().timestamp();
-            let cooldown_data_lock = {
-                ctx.data
-                    .read()
-                    .await
-                    .get::<MattBanCooldown>()
-                    .ok_or_else(|| anyhow::anyhow!("Failed to retrieve MattBanCooldown!"))?
-                    .clone()
+            let last_ban = {
+                let collection = handle.collection::<MattBanCooldown>(MATT_BAN_COLLECTION);
+                let last_ban = collection.find_one(doc! {"_id": "COOLDOWN"}, None).await?;
+                match last_ban {
+                    Some(lb) => lb,
+                    None => MattBanCooldown {
+                        cooldown: 0,
+                        last_ban_timestamp: 0,
+                    },
+                }
             };
-            let (cooldown, last_ban_timestamp) = {
-                let cooldown_data = cooldown_data_lock.read().await;
-                (cooldown_data.cooldown, cooldown_data.last_ban_timestamp)
-            };
-            let handle = retrieve_db_handle(ctx.data.clone()).await?;
-            let author_id = *message.author.id.as_u64();
 
-            // TODO: do some locking so this if cannot run in parallel
-            if time_now - cooldown > last_ban_timestamp {
+            if time_now - last_ban.cooldown > last_ban.last_ban_timestamp {
                 if let Some(guild) = ctx
                     .cache
                     .guilds()
                     .iter()
-                    .find(|guild| *guild.as_u64() == SERVER)
+                    .find(|guild| guild.get() == SERVER)
                 {
                     let mut members_stream = guild.members_iter(&ctx.http).boxed();
                     while let Some(member_result) = members_stream.next().await {
                         let member = member_result?;
-                        if *member.user.id.as_u64() == MATTID {
+                        if member.user.id.get() == MATTID {
                             message
                                 .channel(&ctx.http)
                                 .await?
                                 .id()
-                                .send_message(&ctx.http, |f| {
-                                    f.content("Ajde bok Matijoš!").tts(true)
-                                })
+                                .send_message(
+                                    &ctx.http,
+                                    CreateMessage::new().content("Ajde bok Matijoš!").tts(true),
+                                )
                                 .await?;
                             tokio::time::sleep(Duration::from_secs(4)).await;
                             member.ban(&ctx.http, 0).await?;
-                            {
-                                let mut cooldown_data = cooldown_data_lock.write().await;
-                                cooldown_data.last_ban_timestamp = time_now;
-                            }
                             handle
                                 .collection::<MattBan>(MATT_BAN_COLLECTION)
                                 .insert_one(MattBan::new(author_id, true), None)
@@ -124,12 +130,13 @@ impl MrHandler {
                     .channel(&ctx.http)
                     .await?
                     .id()
-                    .send_message(&ctx.http, |f| {
-                        f.content(&format!(
+                    .send_message(
+                        &ctx.http,
+                        CreateMessage::new().content(&format!(
                             "Nečem ga još banati! ({} s)",
-                            cooldown - (time_now - last_ban_timestamp)
-                        ))
-                    })
+                            last_ban.cooldown - (time_now - last_ban.last_ban_timestamp)
+                        )),
+                    )
                     .await?;
                 let collection = handle.collection::<MattBan>(MATT_BAN_COLLECTION);
                 collection
