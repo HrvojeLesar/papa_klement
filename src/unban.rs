@@ -108,7 +108,7 @@ impl MrHandler {
             None => return Err(anyhow::anyhow!("Failed to create invite!")),
         }
         info!(
-            "Successfully unbaned and sent invite to user {}",
+            "Successfully unbanned and sent invite to user {}",
             banned_user.id
         );
         Ok(())

@@ -149,8 +149,6 @@ impl EventHandler for TrackStartEventHandler {
                 }
                 self.context
                     .set_activity(Some(ActivityData::playing(title)));
-                self.context
-                    .set_activity(Some(ActivityData::playing("TITLE NOT FOUND")));
             }
         }
         None
@@ -518,9 +516,9 @@ impl CommandRunner for PlayCommand {
         // BUG:  Still does not check for file actully existing
         let (source, metadata) = if let Some(saved) = saved_file {
             info!("Reading file from disk!");
-            let mut source: Input =
+            let source: Input =
                 songbird::input::File::new(format!("{}/songbird_cache/{}", *HOME, saved.id)).into();
-            let mut metadata = source.aux_metadata().await?;
+            let mut metadata = AuxMetadata::default();
             metadata.source_url = Some(saved.url);
             metadata.title = saved.title;
             (source, metadata)
@@ -730,6 +728,7 @@ impl CommandRunner for QueueCommand {
     }
 
     async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
+        return Ok(self.make_response("Queue is currently broken", false));
         let guild_id = match command.guild_id {
             Some(g) => g,
             None => {
@@ -779,7 +778,10 @@ impl CommandRunner for QueueCommand {
                     MinutesDisplay::from(current_track_position),
                     MinutesDisplay::from(current_track_length)
                 ));
+            error!("4");
+            error!("{:?} {:?}", current_track_length, current_track_position);
             let mut time_until = Some(current_track_length - current_track_position);
+            error!("5");
             for (i, track) in queue.iter().skip(1).enumerate() {
                 if builder.0.len() >= 2000 {
                     break;
