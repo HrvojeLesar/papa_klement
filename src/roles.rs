@@ -110,7 +110,7 @@ impl MrHandler {
         let saved_users_collection = database_handle.collection::<SavedUser>(&guild_id.to_string());
         let roles = self.get_roles(member, ctx);
         if let Some(roles) = roles {
-            self.record_roles(&saved_users_collection, &member, &roles)
+            self.record_roles(&saved_users_collection, member, &roles)
                 .await?;
         }
         Ok(())

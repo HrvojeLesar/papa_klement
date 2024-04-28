@@ -194,9 +194,7 @@ async fn fetch_leaderboards(
         .for_each_concurrent(None, |(year, leaderboard)| {
             let client = client.clone();
             async move {
-                if Utc::now().timestamp() - leaderboard.last_update_timestamp
-                    <= INTERVAL_TIME as i64
-                {
+                if Utc::now().timestamp() - leaderboard.last_update_timestamp <= INTERVAL_TIME {
                     warn!("Tried to fetch too recently. Skipping.");
                     return;
                 }

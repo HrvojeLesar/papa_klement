@@ -21,7 +21,7 @@ pub(crate) async fn register_slash_commands(ctx: &Context, ready: &Ready) -> Res
 }
 
 fn registered_commands() -> Vec<CreateCommand> {
-    return vec![
+    vec![
         BanTopCommand {}.register(),
         PlayCommand {}.register(),
         SkipCommand {}.register(),
@@ -31,5 +31,5 @@ fn registered_commands() -> Vec<CreateCommand> {
         AddPrivateLeaderboardCommand {}.register(),
         SetSessionCookieCommand {}.register(),
         RollCommand {}.register(),
-    ];
+    ]
 }
