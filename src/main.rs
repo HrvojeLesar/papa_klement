@@ -49,6 +49,11 @@ impl CommandResponse {
     }
 }
 
+struct ReqwestClient;
+impl TypeMapKey for ReqwestClient {
+    type Value = reqwest::Client;
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().expect(".env file not found");
@@ -59,13 +64,14 @@ async fn main() -> Result<()> {
 
     let mongo_database = init_database().await;
 
-    let client = init_serenity_client(vec![MrHandler]).await;
+    let mut client = init_serenity_client(vec![MrHandler]).await;
 
     {
         let mut lock = client.data.write().await;
         lock.insert::<SaveHandlerHandle>(Arc::new(SaveHandler::new(mongo_database.clone())));
         lock.insert::<MongoDatabaseHandle>(mongo_database.clone());
         lock.insert::<QueuedDisconnect>(Arc::new(RwLock::new(QueuedDisconnect::new())));
+        lock.insert::<ReqwestClient>(reqwest::Client::new());
 
         tokio::spawn(start_aoc_auto_fetch(mongo_database));
     }

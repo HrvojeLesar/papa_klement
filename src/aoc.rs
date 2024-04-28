@@ -484,7 +484,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             .value
             .as_i64()
             .ok_or_else(|| anyhow!("Leaderboard ID value is missing"))?;
-        let mut year = command
+        let year = command
             .data
             .options
             .iter()
@@ -500,7 +500,7 @@ impl CommandRunner for AddPrivateLeaderboardCommand {
             .find(|opt| opt.name == SESSION_COOKIE_OPTION)
         {
             Some(sc) => {
-                let mut cookie = sc
+                let cookie = sc
                     .value
                     .as_str()
                     .ok_or_else(|| anyhow!("Session cookie is missing"))?

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::str::FromStr;
+use std::{pin::Pin, str::FromStr};
 
 use crate::{
     aoc::{AddPrivateLeaderboardCommand, RollCommand, SetSessionCookieCommand, SpeedrunCommand},
@@ -35,17 +35,17 @@ impl SlashCommands {
         }
     }
 
-    pub fn get_command(&self) -> Box<dyn CommandRunner> {
+    pub fn get_command(&self) -> Pin<Box<dyn CommandRunner>> {
         match self {
-            Self::BanTop => Box::new(BanTopCommand {}),
-            Self::Play => Box::new(PlayCommand {}),
-            Self::Skip => Box::new(SkipCommand {}),
-            Self::Stop => Box::new(StopCommand {}),
-            Self::Queue => Box::new(QueueCommand {}),
-            Self::Speedrun => Box::new(SpeedrunCommand {}),
-            Self::AddPrivateLeaderboard => Box::new(AddPrivateLeaderboardCommand {}),
-            Self::SetSessionCookie => Box::new(SetSessionCookieCommand {}),
-            Self::Roll => Box::new(RollCommand {}),
+            Self::BanTop => Box::pin(BanTopCommand {}),
+            Self::Play => Box::pin(PlayCommand {}),
+            Self::Skip => Box::pin(SkipCommand {}),
+            Self::Stop => Box::pin(StopCommand {}),
+            Self::Queue => Box::pin(QueueCommand {}),
+            Self::Speedrun => Box::pin(SpeedrunCommand {}),
+            Self::AddPrivateLeaderboard => Box::pin(AddPrivateLeaderboardCommand {}),
+            Self::SetSessionCookie => Box::pin(SetSessionCookieCommand {}),
+            Self::Roll => Box::pin(RollCommand {}),
         }
     }
 }

@@ -42,8 +42,8 @@ pub(crate) async fn defer_response(ctx: &Context, command: &CommandInteraction) 
         .await?)
 }
 
-#[async_trait]
-pub(crate) trait CommandRunner {
+#[async_trait()]
+pub(crate) trait CommandRunner: Send {
     async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse>;
     fn register(&self) -> CreateCommand;
     fn has_deferred_response(&self) -> bool {
@@ -53,7 +53,7 @@ pub(crate) trait CommandRunner {
 
 pub(crate) trait MakeCommandResponse
 where
-    Self: CommandRunner,
+    Self: CommandRunner + Send,
 {
     fn make_response(&self, content: impl Into<String>, ephemeral: bool) -> CommandResponse {
         CommandResponse::new(content.into(), ephemeral, self.has_deferred_response())

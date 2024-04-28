@@ -26,6 +26,6 @@ serenity = { version = "0.12.1", default-features = false, features = [
     "rustls_backend",
 ] }
 sha2 = "0.10.6"
-songbird = { version = "0.4.1", features = ["builtin-queue"] }
+songbird = { version = "0.4.1", features = ["builtin-queue", "driver"] }
 tokio = { version = "1.23.0", features = ["full"] }
 tokio-stream = "0.1.11"

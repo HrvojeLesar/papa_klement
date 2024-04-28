@@ -13,17 +13,12 @@ use mongodb::{bson::doc, Collection, Database};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serenity::{
-    all::{CommandOptionType, CreateCommand, CreateCommandOption},
+    all::{
+        ActivityData, CommandInteraction, CommandOptionType, CreateCommand, CreateCommandOption,
+    },
     async_trait,
-    builder::CreateApplicationCommand,
     model::{
-        prelude::{
-            command::CommandOptionType,
-            interaction::{
-                application_command::ApplicationCommandInteraction, InteractionResponseType,
-            },
-            Activity, ChannelId, ChannelType, GuildId,
-        },
+        prelude::{ChannelId, ChannelType, GuildId},
         user::OnlineStatus,
     },
     prelude::{Context, Mutex, RwLock, TypeMapKey},
@@ -31,15 +26,15 @@ use serenity::{
 };
 use sha2::{Digest, Sha256};
 use songbird::{
-    input::{Input, Restartable},
+    input::{AuxMetadata, Input, YoutubeDl},
     Call, CoreEvent, Event, EventContext, EventHandler,
 };
 use tokio::{process::Command, task::JoinHandle};
 
 use crate::{
     commands::slash_commands::SlashCommands,
-    util::{defer_response, retrieve_save_handler, CommandRunner},
-    CommandResponse, SlashCommands,
+    util::{defer_response, retrieve_save_handler, CommandRunner, MakeCommandResponse},
+    CommandResponse, ReqwestClient,
 };
 
 const QUERY: &str = "search";
@@ -61,8 +56,13 @@ struct CachedAudioRecord {
     date: DateTime<Utc>,
 }
 
+struct AuxMetadataExt;
+impl TypeMapKey for AuxMetadataExt {
+    type Value = AuxMetadata;
+}
+
 struct TrackStartEventHandler {
-    context: Arc<Context>,
+    context: Context,
 }
 
 pub(crate) struct QueuedDisconnect {
@@ -130,17 +130,27 @@ impl EventHandler for TrackStartEventHandler {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
         if let EventContext::Track(track) = ctx {
             if let Some((_track_state, track_handle)) = track.first() {
-                if let Some(title) = track_handle.metadata().title.as_ref() {
-                    self.context.set_activity(Activity::playing(title)).await;
-                } else {
-                    warn!(
-                        "Set TITLE NOT FOUND for track: {:?}",
-                        track_handle.metadata()
-                    );
-                    self.context
-                        .set_activity(Activity::playing("TITLE NOT FOUND"))
-                        .await;
+                let (title, metadata) = {
+                    let handle_lock = track_handle.typemap().read().await;
+                    let metadata = handle_lock.get::<AuxMetadataExt>().cloned();
+                    let title = if let Some(metadata) = metadata.as_ref() {
+                        metadata
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| "TITLE NOT FOUND".to_string())
+                    } else {
+                        "TITLE NOT FOUND".to_string()
+                    };
+
+                    (title, metadata)
+                };
+                if title == "TITLE NOT FOUND" {
+                    warn!("Set TITLE NOT FOUND for track: {:?}", metadata);
                 }
+                self.context
+                    .set_activity(Some(ActivityData::playing(title)));
+                self.context
+                    .set_activity(Some(ActivityData::playing("TITLE NOT FOUND")));
             }
         }
         None
@@ -150,7 +160,7 @@ impl EventHandler for TrackStartEventHandler {
 struct TrackEndEventHandler {
     guild_id: GuildId,
     call_handler: Arc<Mutex<Call>>,
-    context: Arc<Context>,
+    context: Context,
 }
 
 #[async_trait]
@@ -162,7 +172,7 @@ impl EventHandler for TrackEndEventHandler {
                 lock.queue().is_empty()
             };
             if is_empty {
-                self.context.set_presence(None, OnlineStatus::Online).await;
+                self.context.set_presence(None, OnlineStatus::Online);
                 let queued_disconnects = self
                     .context
                     .data
@@ -183,7 +193,7 @@ impl EventHandler for TrackEndEventHandler {
 
 struct DriverDisconnectHandler {
     guild_id: GuildId,
-    context: Arc<Context>,
+    context: Context,
     call_handler: Arc<Mutex<Call>>,
 }
 
@@ -195,7 +205,7 @@ impl EventHandler for DriverDisconnectHandler {
                 let lock = self.call_handler.lock().await;
                 if lock.current_channel().is_none() {
                     lock.queue().stop();
-                    self.context.set_presence(None, OnlineStatus::Online).await;
+                    self.context.set_presence(None, OnlineStatus::Online);
                     let queued_disconnects = self
                         .context
                         .data
@@ -217,12 +227,12 @@ impl EventHandler for DriverDisconnectHandler {
 
 pub(crate) struct SaveHandler {
     save_queue: RwLock<HashSet<String>>,
-    db_handle: Arc<Database>,
+    db_handle: Database,
     hasher: RwLock<Sha256>,
 }
 
 impl SaveHandler {
-    pub(crate) fn new(db_handle: Arc<Database>) -> Self {
+    pub(crate) fn new(db_handle: Database) -> Self {
         Self {
             save_queue: RwLock::new(HashSet::new()),
             db_handle,
@@ -365,11 +375,13 @@ impl SaveHandler {
 }
 
 pub(crate) struct PlayCommand;
+impl MakeCommandResponse for PlayCommand {}
 
 impl PlayCommand {
     fn get_members_voice_channel(
+        &self,
         ctx: &Context,
-        command: &ApplicationCommandInteraction,
+        command: &CommandInteraction,
     ) -> Result<Option<ChannelId>> {
         if let (Some(guild_id), Some(member)) = (command.guild_id.as_ref(), command.member.as_ref())
         {
@@ -387,11 +399,12 @@ impl PlayCommand {
     }
 
     async fn handle_connection(
+        &self,
         ctx: &Context,
-        command: &ApplicationCommandInteraction,
+        command: &CommandInteraction,
     ) -> Result<(Option<InvalidCommandUsage>, Option<Arc<Mutex<Call>>>)> {
         if let (Some(channel_id), Some(guild_id)) = (
-            Self::get_members_voice_channel(ctx, command)?,
+            self.get_members_voice_channel(ctx, command)?,
             command.guild_id,
         ) {
             let manager = songbird::get(ctx)
@@ -412,64 +425,59 @@ impl PlayCommand {
                 }
                 None => {
                     info!("Registering new Call handler and event handlers");
-                    let (handler, join_result) = manager.join(guild_id, channel_id).await;
-                    join_result?;
+                    let join_result = manager.join(guild_id, channel_id).await?;
                     {
-                        let mut lock = handler.lock().await;
+                        let mut lock = join_result.lock().await;
                         // WARN: Very inefficient
-                        let context_arc = Arc::new(ctx.clone());
+                        let context = ctx.clone();
                         lock.add_global_event(
                             Event::Track(songbird::TrackEvent::Play),
                             TrackStartEventHandler {
-                                context: context_arc.clone(),
+                                context: context.clone(),
                             },
                         );
                         lock.add_global_event(
                             Event::Track(songbird::TrackEvent::End),
                             TrackEndEventHandler {
                                 guild_id,
-                                call_handler: handler.clone(),
-                                context: context_arc.clone(),
+                                call_handler: join_result.clone(),
+                                context: context.clone(),
                             },
                         );
                         lock.add_global_event(
                             Event::Core(CoreEvent::DriverDisconnect),
                             DriverDisconnectHandler {
                                 guild_id,
-                                call_handler: handler.clone(),
-                                context: context_arc,
+                                call_handler: join_result.clone(),
+                                context,
                             },
                         );
                     }
-                    handler
+                    join_result
                 }
             };
             Ok((None, Some(handler)))
         } else {
             Ok((
-                Some(Self::make_response(
-                    "Not connected to voice channel".to_string(),
-                    true,
-                    None,
-                )),
+                Some(self.make_response("Not connected to voice channel", true)),
                 None,
             ))
         }
     }
 
-    fn get_query(command: &ApplicationCommandInteraction) -> Result<String> {
-        let mut query_string = command
+    fn get_query(&self, command: &CommandInteraction) -> Result<String> {
+        let query_string = command
             .data
             .options
             .iter()
             .find(|opt| opt.name == QUERY)
             .ok_or_else(|| anyhow!("Missing query option"))?
             .value
-            .as_ref()
-            .ok_or_else(|| anyhow!("Query option is empty"))?
+            .as_str()
+            .ok_or_else(|| anyhow!("Search is empty"))?
             .to_string();
-        query_string.remove(query_string.len() - 1);
-        query_string.remove(0);
+        // query_string.remove(query_string.len() - 1);
+        // query_string.remove(0);
         Ok(query_string)
     }
 }
@@ -493,14 +501,11 @@ impl CommandRunner for PlayCommand {
             .description("Plays a track from youtube")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         defer_response(ctx, command).await?;
-        let query = Self::get_query(command)?;
+        let query = self.get_query(command)?;
 
-        let (early_response, handler) = Self::handle_connection(ctx, command).await?;
+        let (early_response, handler) = self.handle_connection(ctx, command).await?;
         if let Some(r) = early_response {
             return Ok(r);
         }
@@ -511,37 +516,39 @@ impl CommandRunner for PlayCommand {
 
         // WARN: Still does not check for file actully existing
         // BUG:  Still does not check for file actully existing
-        let source = if let Some(saved) = saved_file {
+        let (source, metadata) = if let Some(saved) = saved_file {
             info!("Reading file from disk!");
             let mut source: Input =
-                Restartable::ffmpeg(format!("{}/songbird_cache/{}", *HOME, saved.id), true)
-                    .await?
-                    .into();
-            source.metadata.source_url = Some(saved.url);
-            source.metadata.title = saved.title;
-            source
+                songbird::input::File::new(format!("{}/songbird_cache/{}", *HOME, saved.id)).into();
+            let mut metadata = source.aux_metadata().await?;
+            metadata.source_url = Some(saved.url);
+            metadata.title = saved.title;
+            (source, metadata)
         } else {
             info!("Searching youtube for: {}", query);
+            let client = {
+                let lock = ctx.data.read().await;
+                lock.get::<ReqwestClient>()
+                    .ok_or_else(|| anyhow!("Failed to get reqwest client"))?
+                    .clone()
+            };
             // WARN: cannot be sure if query is actually url
-            let source: Input = if query.starts_with("http") {
-                Restartable::ytdl(query.clone(), true).await?.into()
+            let mut source: Input = if query.starts_with("http") {
+                YoutubeDl::new(client, query.clone()).into()
             } else {
-                Restartable::ytdl_search(query.clone(), true).await?.into()
+                YoutubeDl::new_search(client, query.clone()).into()
             };
 
-            let url = match source.metadata.source_url.as_ref() {
+            let url = match source.aux_metadata().await?.source_url.as_ref() {
                 Some(url) => url.to_string(),
                 None => {
                     error!("Failed to retrieve url from input!");
-                    return Ok(Self::make_response(
-                        "Failed response".to_string(),
-                        true,
-                        None,
-                    ));
+                    return Ok(self.make_response("Failed to retrieve url from input!", true));
                 }
             };
 
-            let title = source.metadata.title.clone();
+            let metadata = source.aux_metadata().await?;
+            let title = metadata.title.clone();
             let data = ctx.data.clone();
             tokio::spawn(async move {
                 let save_handler = match retrieve_save_handler(data).await {
@@ -558,16 +565,19 @@ impl CommandRunner for PlayCommand {
                     error!("Error while saving: {:#?}", e);
                 }
             });
-            source
+            (source, metadata)
         };
 
-        let title = source
-            .metadata
+        let title = metadata
             .title
             .clone()
             .unwrap_or_else(|| "TITLE NOT FOUND".to_string());
         let mut handle = handler.lock().await;
-        handle.enqueue_source(source);
+        let track_handle = handle.enqueue(source.into()).await;
+        {
+            let mut track_handle_lock = track_handle.typemap().write().await;
+            track_handle_lock.insert::<AuxMetadataExt>(metadata);
+        }
 
         if handle.queue().len() == 1 {
             let queued_disconnects = ctx
@@ -583,27 +593,20 @@ impl CommandRunner for PlayCommand {
                     lock.remove_handle(&guild_id);
                 }
             }
-            ctx.set_activity(Activity::playing(&title)).await;
-            Ok(Self::make_response(
-                format!("Now playing: {}", title),
-                false,
-                Some(InteractionResponseType::DeferredUpdateMessage),
-            ))
+            ctx.set_activity(Some(ActivityData::playing(&title)));
+            Ok(self.make_response(format!("Now playing: {}", title), false))
         } else {
-            Ok(Self::make_response(
-                format!("Added to queue: {}", title),
-                false,
-                Some(InteractionResponseType::DeferredUpdateMessage),
-            ))
+            Ok(self.make_response(format!("Added to queue: {}", title), false))
         }
     }
 
-    fn has_deferred_response() -> bool {
+    fn has_deferred_response(&self) -> bool {
         true
     }
 }
 
 pub(crate) struct SkipCommand;
+impl MakeCommandResponse for SkipCommand {}
 
 #[async_trait]
 impl CommandRunner for SkipCommand {
@@ -615,21 +618,14 @@ impl CommandRunner for SkipCommand {
             .description("Skip current track")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         let guild_id = match command.guild_id {
             Some(g) => g,
             None => {
-                return Ok(Self::make_response(
-                    "Command must be run in a guild!".to_string(),
-                    true,
-                    None,
-                ));
+                return Ok(self.make_response("Command must be run in a guild!", true));
             }
         };
-        info!("Skip in guild: {}", guild_id.0);
+        info!("Skip in guild: {}", guild_id.get());
         let manager = songbird::get(ctx)
             .await
             .expect("Songbird must be registered in client")
@@ -642,35 +638,31 @@ impl CommandRunner for SkipCommand {
                     Some(track) => track,
                     None => return Err(anyhow!("Failed to retrieve current track")),
                 };
-                let title = current
-                    .metadata()
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| "[TITLE NOT FOUND]".to_string());
+                let title = {
+                    let handle_lock = current.typemap().read().await;
+                    let metadata = handle_lock.get::<AuxMetadataExt>();
+                    if let Some(metadata) = metadata {
+                        metadata
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| "[TITLE NOT FOUND]".to_string())
+                    } else {
+                        "[TITLE NOT FOUND]".to_string()
+                    }
+                };
                 let _ = queue.skip()?;
-                Ok(Self::make_response(
-                    format!("Skipped: {}", title),
-                    false,
-                    None,
-                ))
+                Ok(self.make_response(format!("Skipped: {}", title), false))
             } else {
-                Ok(Self::make_response(
-                    "There is nothing to skip!".to_string(),
-                    true,
-                    None,
-                ))
+                Ok(self.make_response("There is nothing to skip!", true))
             }
         } else {
-            Ok(Self::make_response(
-                "Failed to skip".to_string(),
-                true,
-                None,
-            ))
+            Ok(self.make_response("Failed to skip", true))
         }
     }
 }
 
 pub(crate) struct StopCommand;
+impl MakeCommandResponse for StopCommand {}
 
 #[async_trait]
 impl CommandRunner for StopCommand {
@@ -682,21 +674,14 @@ impl CommandRunner for StopCommand {
             .description("Stops the bot playing tracks and disconnects it")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         let guild_id = match command.guild_id {
             Some(g) => g,
             None => {
-                return Ok(Self::make_response(
-                    "Command must be run in a guild!".to_string(),
-                    true,
-                    None,
-                ));
+                return Ok(self.make_response("Command must be run in a guild!", true));
             }
         };
-        info!("Stop in guild: {}", guild_id.0);
+        info!("Stop in guild: {}", guild_id.get());
         let manager = songbird::get(ctx)
             .await
             .expect("Songbird must be registered in client")
@@ -706,20 +691,18 @@ impl CommandRunner for StopCommand {
             // WARN: queue is cleared in event handler
             // let queue = handler.queue();
             // queue.stop();
-            ctx.set_presence(None, OnlineStatus::Online).await;
+            ctx.set_presence(None, OnlineStatus::Online);
             handler.leave().await?;
-            Ok(Self::make_response("Stopping".to_string(), false, None))
+            Ok(self.make_response("Stopping", false))
         } else {
-            Ok(Self::make_response(
-                "Failed to stop".to_string(),
-                true,
-                None,
-            ))
+            Ok(self.make_response("Failed to stop", true))
         }
     }
 }
 
 pub(crate) struct QueueCommand;
+impl MakeCommandResponse for QueueCommand {}
+
 struct MinutesDisplay(String);
 
 impl From<Duration> for MinutesDisplay {
@@ -746,21 +729,14 @@ impl CommandRunner for QueueCommand {
             .description("Fetches current track queue.")
     }
 
-    async fn run(
-        ctx: &Context,
-        command: &ApplicationCommandInteraction,
-    ) -> Result<CommandResponse> {
+    async fn run(&self, ctx: &Context, command: &CommandInteraction) -> Result<CommandResponse> {
         let guild_id = match command.guild_id {
             Some(g) => g,
             None => {
-                return Ok(Self::make_response(
-                    "Command must be run in a guild!".to_string(),
-                    true,
-                    None,
-                ));
+                return Ok(self.make_response("Command must be run in a guild!", true));
             }
         };
-        info!("Stop in guild: {}", guild_id.0);
+        info!("Stop in guild: {}", guild_id.get());
         let manager = songbird::get(ctx)
             .await
             .expect("Songbird must be registered in client")
@@ -772,24 +748,27 @@ impl CommandRunner for QueueCommand {
             };
 
             if queue.is_empty() {
-                return Ok(Self::make_response(
-                    "Queue is empty".to_string(),
-                    false,
-                    None,
-                ));
+                return Ok(self.make_response("Queue is empty", false));
             }
             let mut builder = MessageBuilder::new();
             let (current_track_position, current_track_length, title) = {
                 let track = queue.first().ok_or_else(|| anyhow!("Queue is empty"))?;
+                let (title, duration) = {
+                    let handle_lock = track.typemap().read().await;
+                    let metadata = handle_lock.get::<AuxMetadataExt>();
+                    let (title, duration) = if let Some(metadata) = metadata {
+                        let title = metadata.title.clone();
+                        let duration = metadata.duration;
+                        (title, duration)
+                    } else {
+                        (None, None)
+                    };
+                    (title, duration)
+                };
                 (
                     track.get_info().await?.position,
-                    track.metadata().duration.unwrap_or(Duration::from_secs(0)),
-                    track
-                        .metadata()
-                        .title
-                        .as_ref()
-                        .cloned()
-                        .unwrap_or_else(|| "TITLE NOT FOUND!".to_string()),
+                    duration.unwrap_or(Duration::from_secs(0)),
+                    title.unwrap_or_else(|| "TITLE NOT FOUND!".to_string()),
                 )
             };
             builder
@@ -806,12 +785,20 @@ impl CommandRunner for QueueCommand {
                     break;
                 }
                 builder.push_bold(format!("{}. ", i + 1));
-                match track.metadata().title.as_ref() {
+                let metadata = {
+                    let handle_lock = track.typemap().read().await;
+                    let metadata = handle_lock.get::<AuxMetadataExt>().cloned();
+                    match metadata {
+                        Some(m) => m,
+                        None => AuxMetadata::default(),
+                    }
+                };
+                match metadata.title.as_ref() {
                     Some(title) => builder.push(title),
                     None => builder.push("NO TITLE FOUND"),
                 };
                 if let (Some(track_duration), Some(time_until)) =
-                    (track.metadata().duration.as_ref(), time_until.as_mut())
+                    (metadata.duration.as_ref(), time_until.as_mut())
                 {
                     builder.push_bold_line(format!(" | {}", MinutesDisplay::from(*time_until)));
                     *time_until += *track_duration;
@@ -830,12 +817,8 @@ impl CommandRunner for QueueCommand {
             } else {
                 builder.build()
             };
-            return Ok(Self::make_response(queue_response, false, None));
+            return Ok(self.make_response(queue_response, false));
         }
-        Ok(Self::make_response(
-            "Failed retrieving queue".to_string(),
-            false,
-            None,
-        ))
+        Ok(self.make_response("Failed retrieving queue", false))
     }
 }

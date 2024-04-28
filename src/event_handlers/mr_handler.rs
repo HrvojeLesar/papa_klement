@@ -11,7 +11,6 @@ use serenity::{
 
 use crate::{
     commands::{create_commands::register_slash_commands, slash_commands::SlashCommands},
-    util::CommandRunner,
     CommandResponse,
 };
 
@@ -19,10 +18,6 @@ use crate::{
 pub(crate) struct MrHandler;
 
 impl MrHandler {
-    fn map_slash_commands_to_handler(command: CommandInteraction) -> Box<dyn CommandRunner> {
-        todo!()
-    }
-
     async fn handle_application_command(
         &self,
         ctx: &Context,
@@ -83,7 +78,7 @@ impl EventHandler for MrHandler {
         ctx: Context,
         _old: Option<Member>,
         new: Option<Member>,
-        event: GuildMemberUpdateEvent,
+        _event: GuildMemberUpdateEvent,
     ) {
         if let Some(new) = new {
             match self.save_member_roles_on_update(&ctx, &new).await {
