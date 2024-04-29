@@ -6,7 +6,7 @@ use log::{error, info};
 use mongodb::{bson::doc, IndexModel};
 use serde::{Deserialize, Serialize};
 use serenity::{
-    all::{CreateInvite, CreateMessage},
+    all::{ChannelType, CreateInvite, CreateMessage},
     model::{
         guild::audit_log::Action,
         prelude::{GuildId, MemberAction},
@@ -90,7 +90,7 @@ impl MrHandler {
         }
         let mut invite = None;
         for (channel_id, channel) in guild.channels(&ctx.http).await?.iter() {
-            if channel.is_text_based() {
+            if channel.kind == ChannelType::Text {
                 invite = Some(
                     channel_id
                         .create_invite(&ctx.http, CreateInvite::new().max_uses(10))
