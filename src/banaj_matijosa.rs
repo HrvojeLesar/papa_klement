@@ -30,6 +30,8 @@ const ALLOWEDMEMBERS: &[u64] = &[
     302763402944839680,
     // Seba
     155013213811900416,
+    // Josipa
+    721662595253403669,
 ];
 pub const MATT_BAN_COLLECTION: &str = "matt_ban";
 pub const BAN_COOLDOWN_TIME: i64 = 3600;
