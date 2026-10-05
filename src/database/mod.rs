@@ -1,7 +1,7 @@
 use std::env;
 
 use mongodb::{options::ClientOptions, Database};
-use songbird::typemap::TypeMapKey;
+use serenity::prelude::TypeMapKey;
 
 pub(crate) const MONGODB_NAME: &str = "papa_klement";
 

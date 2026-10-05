@@ -6,7 +6,7 @@ use client::init_serenity_client;
 use database::{init_database, MongoDatabaseHandle};
 use event_handlers::mr_handler::MrHandler;
 use music::{QueuedDisconnect, SaveHandler};
-use songbird::typemap::TypeMapKey;
+use serenity::prelude::TypeMapKey;
 use tokio::sync::RwLock;
 
 mod aoc;

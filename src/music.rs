@@ -27,6 +27,7 @@ use serenity::{
 use sha2::{Digest, Sha256};
 use songbird::{
     input::{AuxMetadata, Input, YoutubeDl},
+    tracks::Track,
     Call, CoreEvent, Event, EventContext, EventHandler,
 };
 use tokio::{process::Command, task::JoinHandle};
@@ -40,6 +41,7 @@ use crate::{
 const QUERY: &str = "search";
 static HOME: Lazy<String> =
     Lazy::new(|| env::var("HOME").expect("HOME environment variable is required!"));
+static COOKIES_PATH: Lazy<String> = Lazy::new(|| format!("{}/cookies.txt", *HOME));
 
 const CACHED_AUDIO_COLLECTION: &str = "cached_audio";
 const DISCONNECT_AFTER: u64 = 5 * 60;
@@ -54,11 +56,6 @@ struct CachedAudioRecord {
     url: String,
     title: Option<String>,
     date: DateTime<Utc>,
-}
-
-struct AuxMetadataExt;
-impl TypeMapKey for AuxMetadataExt {
-    type Value = AuxMetadata;
 }
 
 struct TrackStartEventHandler {
@@ -130,20 +127,11 @@ impl EventHandler for TrackStartEventHandler {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
         if let EventContext::Track(track) = ctx {
             if let Some((_track_state, track_handle)) = track.first() {
-                let (title, metadata) = {
-                    let handle_lock = track_handle.typemap().read().await;
-                    let metadata = handle_lock.get::<AuxMetadataExt>().cloned();
-                    let title = if let Some(metadata) = metadata.as_ref() {
-                        metadata
-                            .title
-                            .clone()
-                            .unwrap_or_else(|| "TITLE NOT FOUND".to_string())
-                    } else {
-                        "TITLE NOT FOUND".to_string()
-                    };
-
-                    (title, metadata)
-                };
+                let metadata = track_handle.data::<AuxMetadata>();
+                let title = metadata
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| "TITLE NOT FOUND".to_string());
                 if title == "TITLE NOT FOUND" {
                     warn!("Set TITLE NOT FOUND for track: {:?}", metadata);
                 }
@@ -343,6 +331,8 @@ impl SaveHandler {
                 "--no-playlist",
                 "--ignore-config",
                 "--no-warnings",
+                "--cookies",
+                COOKIES_PATH.as_str(),
                 url,
                 "-o",
                 &format!("{}/songbird_cache/{}", *HOME, &hash),
@@ -530,11 +520,16 @@ impl CommandRunner for PlayCommand {
                     .ok_or_else(|| anyhow!("Failed to get reqwest client"))?
                     .clone()
             };
+            let ytdl_args = vec!["--cookies".to_string(), COOKIES_PATH.clone()];
             // WARN: cannot be sure if query is actually url
             let mut source: Input = if query.starts_with("http") {
-                YoutubeDl::new(client, query.clone()).into()
+                YoutubeDl::new(client, query.clone())
+                    .user_args(ytdl_args)
+                    .into()
             } else {
-                YoutubeDl::new_search(client, query.clone()).into()
+                YoutubeDl::new_search(client, query.clone())
+                    .user_args(ytdl_args)
+                    .into()
             };
 
             let url = match source.aux_metadata().await?.source_url.as_ref() {
@@ -571,11 +566,9 @@ impl CommandRunner for PlayCommand {
             .clone()
             .unwrap_or_else(|| "TITLE NOT FOUND".to_string());
         let mut handle = handler.lock().await;
-        let track_handle = handle.enqueue(source.into()).await;
-        {
-            let mut track_handle_lock = track_handle.typemap().write().await;
-            track_handle_lock.insert::<AuxMetadataExt>(metadata);
-        }
+        handle
+            .enqueue(Track::new_with_data(source, Arc::new(metadata)))
+            .await;
 
         if handle.queue().len() == 1 {
             let queued_disconnects = ctx
@@ -636,18 +629,11 @@ impl CommandRunner for SkipCommand {
                     Some(track) => track,
                     None => return Err(anyhow!("Failed to retrieve current track")),
                 };
-                let title = {
-                    let handle_lock = current.typemap().read().await;
-                    let metadata = handle_lock.get::<AuxMetadataExt>();
-                    if let Some(metadata) = metadata {
-                        metadata
-                            .title
-                            .clone()
-                            .unwrap_or_else(|| "[TITLE NOT FOUND]".to_string())
-                    } else {
-                        "[TITLE NOT FOUND]".to_string()
-                    }
-                };
+                let title = current
+                    .data::<AuxMetadata>()
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| "[TITLE NOT FOUND]".to_string());
                 let _ = queue.skip()?;
                 Ok(self.make_response(format!("Skipped: {}", title), false))
             } else {
@@ -752,18 +738,8 @@ impl CommandRunner for QueueCommand {
             let mut builder = MessageBuilder::new();
             let (current_track_position, current_track_length, title) = {
                 let track = queue.first().ok_or_else(|| anyhow!("Queue is empty"))?;
-                let (title, duration) = {
-                    let handle_lock = track.typemap().read().await;
-                    let metadata = handle_lock.get::<AuxMetadataExt>();
-                    let (title, duration) = if let Some(metadata) = metadata {
-                        let title = metadata.title.clone();
-                        let duration = metadata.duration;
-                        (title, duration)
-                    } else {
-                        (None, None)
-                    };
-                    (title, duration)
-                };
+                let metadata = track.data::<AuxMetadata>();
+                let (title, duration) = (metadata.title.clone(), metadata.duration);
                 (
                     track.get_info().await?.position,
                     duration.unwrap_or(Duration::from_secs(0)),
@@ -787,14 +763,7 @@ impl CommandRunner for QueueCommand {
                     break;
                 }
                 builder.push_bold(format!("{}. ", i + 1));
-                let metadata = {
-                    let handle_lock = track.typemap().read().await;
-                    let metadata = handle_lock.get::<AuxMetadataExt>().cloned();
-                    match metadata {
-                        Some(m) => m,
-                        None => AuxMetadata::default(),
-                    }
-                };
+                let metadata = track.data::<AuxMetadata>();
                 match metadata.title.as_ref() {
                     Some(title) => builder.push(title),
                     None => builder.push("NO TITLE FOUND"),
