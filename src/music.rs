@@ -331,12 +331,16 @@ impl SaveHandler {
                 "--no-playlist",
                 "--ignore-config",
                 "--no-warnings",
+                "--remote-components",
+                "ejs:github",
                 "--cookies",
                 COOKIES_PATH.as_str(),
                 url,
                 "-o",
                 &format!("{}/songbird_cache/{}", *HOME, &hash),
             ];
+
+            info!("{:#?}", ytdl_args);
 
             let command_status = match Command::new("yt-dlp").args(ytdl_args).spawn() {
                 Ok(mut child) => child.wait().await,
@@ -520,7 +524,14 @@ impl CommandRunner for PlayCommand {
                     .ok_or_else(|| anyhow!("Failed to get reqwest client"))?
                     .clone()
             };
-            let ytdl_args = vec!["--cookies".to_string(), COOKIES_PATH.clone()];
+            let ytdl_args = vec![
+                "--ignore-config".to_string(),
+                "--no-warnings".to_string(),
+                "--remote-components".to_string(),
+                "ejs:github".to_string(),
+                "--cookies".to_string(),
+                COOKIES_PATH.clone(),
+            ];
             // WARN: cannot be sure if query is actually url
             let mut source: Input = if query.starts_with("http") {
                 YoutubeDl::new(client, query.clone())
