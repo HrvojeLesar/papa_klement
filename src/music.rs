@@ -26,7 +26,7 @@ use serenity::{
 };
 use sha2::{Digest, Sha256};
 use songbird::{
-    input::{AuxMetadata, Input, YoutubeDl},
+    input::{AuxMetadata, Compose, Input, YoutubeDl},
     tracks::Track,
     Call, CoreEvent, Event, EventContext, EventHandler,
 };
@@ -34,6 +34,7 @@ use tokio::{process::Command, task::JoinHandle};
 
 use crate::{
     commands::slash_commands::SlashCommands,
+    ffmpeg_input::{FfmpegInput, YTDL_FORMAT},
     util::{defer_response, retrieve_save_handler, CommandRunner, MakeCommandResponse},
     CommandResponse, ReqwestClient,
 };
@@ -327,7 +328,7 @@ impl SaveHandler {
             }
             let ytdl_args = [
                 "-f",
-                "webm[abr>0]/bestaudio/best",
+                YTDL_FORMAT,
                 "--no-playlist",
                 "--ignore-config",
                 "--no-warnings",
@@ -510,11 +511,14 @@ impl CommandRunner for PlayCommand {
         // BUG:  Still does not check for file actully existing
         let (source, metadata) = if let Some(saved) = saved_file {
             info!("Reading file from disk!");
-            let source: Input =
-                songbird::input::File::new(format!("{}/songbird_cache/{}", *HOME, saved.id)).into();
             let mut metadata = AuxMetadata::default();
             metadata.source_url = Some(saved.url);
             metadata.title = saved.title;
+            let source: Input = FfmpegInput::file(
+                format!("{}/songbird_cache/{}", *HOME, saved.id),
+                metadata.clone(),
+            )
+            .into();
             (source, metadata)
         } else {
             info!("Searching youtube for: {}", query);
@@ -533,17 +537,15 @@ impl CommandRunner for PlayCommand {
                 COOKIES_PATH.clone(),
             ];
             // WARN: cannot be sure if query is actually url
-            let mut source: Input = if query.starts_with("http") {
+            let mut search = if query.starts_with("http") {
                 YoutubeDl::new(client, query.clone())
-                    .user_args(ytdl_args)
-                    .into()
             } else {
                 YoutubeDl::new_search(client, query.clone())
-                    .user_args(ytdl_args)
-                    .into()
-            };
+            }
+            .user_args(ytdl_args.clone());
 
-            let url = match source.aux_metadata().await?.source_url.as_ref() {
+            let metadata = search.aux_metadata().await?;
+            let url = match metadata.source_url.as_ref() {
                 Some(url) => url.to_string(),
                 None => {
                     error!("Failed to retrieve url from input!");
@@ -551,7 +553,9 @@ impl CommandRunner for PlayCommand {
                 }
             };
 
-            let metadata = source.aux_metadata().await?;
+            // YoutubeDl is only used for search/metadata, songbird can't decode
+            // every format YouTube serves (see FfmpegInput)
+            let source: Input = FfmpegInput::ytdl(url.clone(), ytdl_args, metadata.clone()).into();
             let title = metadata.title.clone();
             let data = ctx.data.clone();
             tokio::spawn(async move {

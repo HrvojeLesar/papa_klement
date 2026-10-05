@@ -16,6 +16,7 @@ mod client;
 mod commands;
 mod database;
 mod event_handlers;
+mod ffmpeg_input;
 mod music;
 mod roles;
 mod unban;
